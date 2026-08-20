@@ -4,7 +4,7 @@ owner: "genkovich"
 reviewers: ["Tech Lead", "Security Lead"]
 updated_at: "2026-08-20"
 feature_size: "M"
-target_surfaces: []  # filled in §4 — subset of: backend-service | web-frontend | mobile-app | desktop-app | cli | worker | library-sdk. Read (never re-derived) by api/sequences/tasks/plan-tests/review → _shared/surfaces.md
+target_surfaces: [backend-service, web-frontend]  # filled in §4 — subset of: backend-service | web-frontend | mobile-app | desktop-app | cli | worker | library-sdk. Read (never re-derived) by api/sequences/tasks/plan-tests/review → _shared/surfaces.md
 ---
 
 # Software Architecture Document — board
@@ -32,7 +32,7 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
 | Tech Lead | SAD approval | Yes |
 | Security Lead | Security review публічного неавтентифікованого доступу (spec §6.1) | Yes |
 
-<!-- Decision overrides (¶4) — populated by the critic resolution loop, empty otherwise. -->
+**Decision override:** real-time board delivery через Server-Sent Events, а не fetch-on-load — rationale: idea-brief §7/§14 явно розглянув і «запаркував» Approach B «жива трансляція борди» через розмір L і крихкість постійних з'єднань у залі воркшопу з нестабільним Wi-Fi. Design (§4, blast-radius gate) явно перевідкрив це рішення, і користувач обрав live push замість рекомендованого fetch-on-load, звузивши реалізацію до односпрямованого SSE (не повний WebSocket) — деталі й наслідки → ADR-0002.
 
 ## 2. Constraints
 
@@ -111,9 +111,10 @@ Board показаний як один чорний ящик: team member вза
 
 **Top strategic choices (the seeds for ADRs):**
 
-1. **<e.g. Module isolation through events>** — <2–3 sentences citing quality goals + constraints>.
-2. **<e.g. Single-store persistence>** — <2–3 sentences>.
-3. **<e.g. Server-rendered read side>** — <2–3 sentences>.
+1. **Target surface: backend API + web SPA** — board — це Go REST API (`backend-service`) плюс React SPA (`web-frontend`), єдине джерело істини — Postgres через API; і team member, і viewer завжди бачать той самий стан (ux-flows.md — 6 екранів). → **ADR-0001**.
+2. **Push board-стану через Server-Sent Events (SSE), не fetch-on-load** — щойно team member змінює task, кожен відкритий клієнт (інший team member або viewer на public link) отримує оновлення миттєво, без ручного перезавантаження — «жива» демонстрація на воркшопі. Конкретний механізм — SSE (`EventSource`), не повний WebSocket: канал односпрямований (сервер → клієнт; записи й далі йдуть звичайним REST POST/PUT/DELETE), а `EventSource` має вбудований auto-reconnect — менше рухомих частин, ніж ручна reconnect-логіка WebSocket. → **ADR-0002**.
+3. **Public link — непередбачуваний токен, збережений у Postgres** — жодної криптографії з підписом; відкликання = один `DELETE`/`UPDATE` рядка, миттєво і без побічних ефектів (AC-11). → **ADR-0003**.
+4. **Column — фіксований, заданий заздалегідь набір (seed-міграція), без CRUD** — жодна user story spec не вимагає керування колонками; мінімальна схема даних відповідає принципу «без роздування скоупу» (idea-brief §13). → **ADR-0004**.
 
 Each tactical decision in later sections should trace to one of these seeds. Tactical decisions that *contradict* a strategic choice are red flags — surface them in §11.
 
