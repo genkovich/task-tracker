@@ -12,7 +12,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/genkovich/task-tracker/api/internal/modules/auth"
+	"github.com/genkovich/task-tracker/api/internal/modules/board"
 	"github.com/genkovich/task-tracker/api/internal/modules/user"
 	"github.com/genkovich/task-tracker/api/internal/platform/authmw"
 	"github.com/genkovich/task-tracker/api/internal/platform/config"
@@ -85,6 +88,15 @@ func main() {
 		user.New(db, avatarStorage),
 		authHandler,
 	)
+
+	// board is deliberately unauthenticated (ADR-0001, no accounts) and its
+	// handlers register full "/api/v1/..." paths (ports/*.go), so it is
+	// mounted directly on the root router rather than passed into
+	// server.New's opts — passing it there would nest it under the shared
+	// "/api/v1" registrar group and double-prefix every board route.
+	if root, ok := s.Handler().(chi.Router); ok {
+		board.New(db).RegisterRoutes(root)
+	}
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
