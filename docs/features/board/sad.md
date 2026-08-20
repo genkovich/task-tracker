@@ -323,20 +323,20 @@ ADR files live under `docs/features/<slug>/adr/NNNN-<title>.md`.
 
 Each top-3 goal from §1 expanded into a full scenario:
 
-**QG-1. <quality attribute>**
-- **When:** <trigger condition>
-- **Then:** <expected behaviour with numbers from spec §6 NFR>
-- **How verify:** <test / chaos drill / load test / metric>
+**QG-1. Availability з телефонів у залі воркшопу**
+- **When:** viewer відкриває public link під час воркшопу (перша хвиля ~30 людей, idea-brief §11 Reach) або в будь-який інший момент.
+- **Then:** сервіс доступний за public HTTPS-домен (§7) з Availability 99% (щомісячне SLO-вікно, spec §6 NFR).
+- **How verify:** production monitoring (uptime метрика на `/metrics` + Grafana дашборд, §7); ручна перевірка з кількох мобільних пристроїв перед датою воркшопу.
 
-**QG-2. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
+**QG-2. Узгодженість статусу task під конкурентним перетягуванням**
+- **When:** двоє team member одночасно перетягують ту саму task у різні column (AC-05b).
+- **Then:** task лишається рівно в одній column — тій, чия зміна оброблена останньою — і кожен наступний перегляд будь-ким показує саме цей єдиний узгоджений стан (spec §6 NFR «Узгодженість статусу task»).
+- **How verify:** domain invariant test — конкурентний запис двох команд move у тестовому середовищі, перевірка фінального стану в БД (integration test, `//go:build integration`).
 
-**QG-3. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
+**QG-3. Відповідність (responsiveness) дій редагування**
+- **When:** team member створює, редагує, переміщує чи видаляє task; будь-хто (team member або viewer) завантажує board.
+- **Then:** p95 латентність запису ≤300ms; p95 латентність завантаження board ≤500ms; throughput ≥20 req/s на інстанс (spec §6 NFR, вербатим).
+- **How verify:** production monitoring (Prometheus гістограми латентності per-endpoint) + smoke load-test у CI (spec §6 «Throughput | Measurement: smoke test у CI»).
 
 ## 11. Risks and technical debt
 
