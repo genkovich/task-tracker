@@ -126,10 +126,11 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export const apiClient = {
   get: <T>(path: string) => request<T>(path),
 
-  post: <T>(path: string, body: unknown) =>
+  post: <T>(path: string, body: unknown, headers?: Record<string, string>) =>
     request<T>(path, {
       method: "POST",
       body: JSON.stringify(body),
+      headers,
     }),
 
   put: <T>(path: string, body: unknown) =>
