@@ -15,27 +15,22 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
 
 ## 1. Introduction and goals
 
-<!-- 🎯 Why: durable memory of «what + the three dominant qualities + who cares». A year from
-     now nobody recalls which three qualities were critical for this system.
-     📋 Write: 1 ¶ intent + 3 lines of top-3 quality goals + a stakeholders table.
-     ¶4 is the override slot — critic `Override` resolutions emit «Decision override: <headline>
-     — rationale: <reason>» bullets here so downstream skills see the deliberate choice. -->
-
-**Intent.** <One paragraph from spec §2 Goals — what we're building and for whom.>
+**Intent.** Дати малій команді (3–7 людей) спільний, завжди актуальний канбан-стан задач без реєстрації чи облікових записів, і дати їм один лінк, яким можна показати реальний прогрес глядачам поза командою — виключно на перегляд, без права редагування. Продукт — рівно одна board, яку team member редагує напряму (створює, редагує, переміщує перетягуванням, видаляє task), і яку будь-хто може відкрити через public link (spec §2 Goals).
 
 **Top-3 quality goals (1-liners; full scenarios in §10):**
 
-1. <e.g. "Availability under partial failure of a downstream module">
-2. <e.g. "Read performance for the dashboard under data-scale growth">
-3. <e.g. "Recoverability with <30 min RTO">
+1. **Availability з телефонів у залі воркшопу** — найближчий воркшоп є фіксованим дедлайном і живою перевіркою продукту: public link має відкриватись зі смартфонів глядачів надійно, а не лише з ноутбука команди (spec §1 Context, §7 KPIs).
+2. **Узгодженість статусу task під конкурентним перетягуванням** — task завжди належить рівно одній column, навіть коли двоє team member одночасно перетягують ту саму task (AC-05b, domain invariant з spec §6).
+3. **Відповідність (responsiveness) дій редагування** — щоб інструмент читався як «реально працює», а не як макет слайда: p95 запису ≤300ms, p95 завантаження board ≤500ms (spec §6 NFR).
 
 **Stakeholders.**
 
 | Role | Interest | Sign-off owner? |
 |---|---|---|
-| <author role from glossary> | <feature usage> | No |
-| <consumer role from glossary> | <read usage> | No |
+| team member (CONTEXT glossary) | Редагує board напряму: створює/редагує/переміщує/видаляє task, керує public link | No |
+| viewer (CONTEXT glossary) | Відкриває public link, бачить поточний стан board лише на перегляд | No |
 | Tech Lead | SAD approval | Yes |
+| Security Lead | Security review публічного неавтентифікованого доступу (spec §6.1) | Yes |
 
 <!-- Decision overrides (¶4) — populated by the critic resolution loop, empty otherwise. -->
 
