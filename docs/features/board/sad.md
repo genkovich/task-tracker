@@ -183,23 +183,77 @@ C4Container
      📌 e.g. «author → web: composes draft → web → content API: save». Seed the primary flow(s) here;
      the `sequences` stage then covers every §5 AC (no cap). Never N/A for M+; XS/S keeps ≥1 happy-path flow. -->
 
-**Critical flow 1: <flow name>**
+**Critical flow 1: Team member перетягує task, зміна доходить до всіх живих клієнтів (AC-04, ADR-0002)**
 
 ```mermaid
 sequenceDiagram
-    actor Actor
+    actor Member as Team member
+    actor Other as Інший відкритий клієнт
     participant Web
-    participant Service
-    participant Store
-    Actor->>Web: <action>
-    Web->>Service: <call>
-    Service->>Store: <write>
-    Store-->>Service: ok
-    Service-->>Web: result
-    Web-->>Actor: confirmation
+    participant API as Board API
+    participant DB as PostgreSQL
+
+    Member->>Web: перетягує task в іншу column і відпускає
+    Web->>API: просить перемістити task у нову column
+    API->>DB: записує нову column для task
+    DB-->>API: ok
+    API-->>Web: підтверджує переміщення
+    Web-->>Member: task показана в новій column
+    API->>Other: розсилає подію "стан змінився" (SSE, ADR-0002)
+    Other->>API: запитує оновлений стан board
+    API->>DB: читає поточний стан
+    DB-->>API: поточний стан
+    API-->>Other: оновлений стан
+    Other-->>Other: показує task у новій column без ручного оновлення
 ```
 
-**Critical flow 2: <e.g. async event propagation>** — <if applicable, otherwise N/A>.
+**Critical flow 2: Конкурентне перетягування тієї самої task двома team member (AC-05b, domain invariant)**
+
+```mermaid
+sequenceDiagram
+    actor MemberA as Team member A
+    actor MemberB as Team member B
+    participant API as Board API
+    participant DB as PostgreSQL
+
+    MemberA->>API: просить перемістити task у column X
+    MemberB->>API: просить перемістити ту саму task у column Y (майже одночасно)
+    API->>DB: записує column X для task
+    DB-->>API: ok
+    API->>DB: записує column Y для task (обробляється останньою)
+    DB-->>API: ok — column Y перезаписує column X
+    API-->>MemberA: підтверджує запит (без знання про перегонову умову)
+    API-->>MemberB: підтверджує запит
+    API->>MemberA: розсилає подію "стан змінився" (SSE)
+    API->>MemberB: розсилає подію "стан змінився" (SSE)
+    MemberA->>API: запитує оновлений стан
+    API-->>MemberA: task показана в column Y — єдиний узгоджений стан для обох
+```
+
+**Critical flow 3: Viewer відкриває public link; лінк відкликано (AC-09, AC-10, AC-11)**
+
+```mermaid
+sequenceDiagram
+    actor Viewer
+    participant Web
+    participant API as Board API
+    participant DB as PostgreSQL
+
+    Viewer->>Web: відкриває public link (токен у адресі)
+    Web->>API: запитує стан board за токеном
+    API->>DB: перевіряє токен і читає стан
+    alt токен чинний — AC-09
+        DB-->>API: поточний стан board
+        API-->>Web: стан board, лише перегляд
+        Web-->>Viewer: показує board (SCR-05)
+        Viewer->>Web: намагається перетягнути task — AC-10
+        Web-->>Viewer: дію відхилено, "лише перегляд"
+    else токен відкликаний або недійсний — AC-11
+        DB-->>API: токен не знайдено / неактивний
+        API-->>Web: доступ не надається
+        Web-->>Viewer: показує "лінк недоступний" (SCR-06)
+    end
+```
 
 ## 7. Deployment view
 
