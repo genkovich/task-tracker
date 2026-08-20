@@ -3,6 +3,7 @@
 .idea/
 .vscode/
 .worktrees/
+.claude/worktrees/
 node_modules/
 *.local.md
 .claude/settings.local.json
