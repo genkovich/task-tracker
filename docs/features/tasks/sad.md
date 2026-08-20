@@ -4,302 +4,284 @@ owner: "genkovich"
 reviewers: ["Tech Lead", "Security Lead"]
 updated_at: "2026-08-20"
 feature_size: "S"
-target_surfaces: []  # filled in §4 — subset of: backend-service | web-frontend | mobile-app | desktop-app | cli | worker | library-sdk. Read (never re-derived) by api/sequences/tasks/plan-tests/review → _shared/surfaces.md
+target_surfaces: [backend-service, web-frontend]
 ---
 
 # Software Architecture Document — tasks
 
-<!-- 12 Arc42 sections. Empty section → <!-- N/A: <one-line reason> -->. -->
+<!-- 12 Arc42 sections. Empty section → <!-- N/A: <reason> -->. -->
 <!-- C4 Context (L1) lives inline in §3. C4 Container (L2) lives inline in §5. -->
 <!-- Numbers in §10 come VERBATIM from spec.md §6 NFR — no inventing, no rounding. -->
 
 ## 1. Introduction and goals
 
-<!-- 🎯 Why: durable memory of «what + the three dominant qualities + who cares». A year from
-     now nobody recalls which three qualities were critical for this system.
-     📋 Write: 1 ¶ intent + 3 lines of top-3 quality goals + a stakeholders table.
-     ¶4 is the override slot — critic `Override` resolutions emit «Decision override: <headline>
-     — rationale: <reason>» bullets here so downstream skills see the deliberate choice. -->
-
-**Intent.** <One paragraph from spec §2 Goals — what we're building and for whom.>
+**Intent.** The `tasks` feature gives a small team (3–7 people) a single shared kanban board with three fixed columns — To Do → In Progress → Done. Team members create, edit, drag, and delete cards from their own devices, and every change is visible to the whole team immediately, whichever device they're on. A team member can also generate and disable an unpredictable public read-only link so people outside the team — a stakeholder, a client, a workshop audience — can watch the board's current state live, without an account.
 
 **Top-3 quality goals (1-liners; full scenarios in §10):**
 
-1. <e.g. "Availability under partial failure of a downstream module">
-2. <e.g. "Read performance for the dashboard under data-scale growth">
-3. <e.g. "Recoverability with <30 min RTO">
+1. Concurrency/accuracy correctness — the last change to reach the server wins on a near-simultaneous edit to the same card, and every viewer converges on that same final state (AC-07, AC-15).
+2. Interaction latency — drag-and-drop feels instantaneous, by touch and by mouse, because the workshop demo depends on cards visibly moving in real time, not looking like a static mockup.
+3. Public-access correctness and availability — a disabled or never-valid link always resolves as a generic not-found (no existence leak), an active link reflects the team's current state without a stale snapshot, and the board holds up for the workshop's viewing window.
 
 **Stakeholders.**
 
 | Role | Interest | Sign-off owner? |
 |---|---|---|
-| <author role from glossary> | <feature usage> | No |
-| <consumer role from glossary> | <read usage> | No |
+| Team member (учасник команди) | Creates/edits/drags/deletes cards, manages the public link | No |
+| Viewer (глядач) | Opens the public link, watches the board read-only | No |
 | Tech Lead | SAD approval | Yes |
+| Security Lead | Reviews the public-link authorization boundary (spec §6.1: Security review required) | Yes |
 
-<!-- Decision overrides (¶4) — populated by the critic resolution loop, empty otherwise. -->
+<!-- Decision overrides (¶4) — none yet. -->
 
 ## 2. Constraints
 
-<!-- 🎯 Why: §4 strategy only works when §2 has fixed WHAT IS ALREADY FIXED — stack, versions,
-     deadline, regulatory. This is an input, not an output.
-     📋 Write: four blocks — Technical / Organisational / Conventions / Regulatory.
-     📌 Pin versions («<datastore> 18», not «<datastore>»); «Q3 deadline — hard», not «ideally».
-     Never N/A — every feature inherits at least Conventions + Technical. -->
-
 **Technical.**
-- <Language + version>
-- <Framework(s) + version>
-- <Datastore(s) + version>
-- <Architecture convention — e.g. the layering style from the project convention file>
+- Go (repo's fixed backend toolchain, `api/`) + chi router + pgx + golang-migrate against Postgres — README.md, `api/CLAUDE.md`.
+- React Router 7 SPA (`ssr:false`) + Tailwind 4 + shadcn primitives — README.md, `web/CLAUDE.md`; mobile-first posture already set by `ux-flows.md`.
+- Module layering convention: `domain/ app/ infra/ ports/` per module, consumer-side interfaces, manual constructor injection (no DI framework) — `api/internal/modules/user/` is the exemplar; `.claude/rules/go-design-patterns.md`.
+- Frontend feature-slice convention: `api/ model/ ui/` per slice under `web/src/features/`, no cross-slice imports — `web/CLAUDE.md`.
 
 **Organisational.**
-- <Effort budget — e.g. 3 person-weeks>
-- <Deadline — e.g. 2026-Q3 hard>
-- <Team composition>
+- Effort budget: size S (~1 week) — spec §1 decision override: Approach C's domain here is narrower than the idea-brief's general M estimate (no accounts, no history, free-text assignee).
+- Deadline: the workshop date is not fixed yet (spec §8 open question, owner genkovich); once set it becomes a hard external deadline for §1 quality goal 3 (availability).
+- Team: repo owner, small crew.
 
 **Conventions.**
-- <Link to the project's convention file>
-- <Naming, ID strategy, error-handling pattern>
+- Error response shape `{"error":{"code":"domain.snake_case","message":"..."}}`, mapped from domain sentinel errors in `ports/errors.go` — `.claude/rules/go-errors.md`, `internal/platform/httputil/`.
+- All routes inherit the shared middleware stack (CORS, security headers, RequestID, Logger, Recoverer, 30 s request timeout, 1 MB body limit) — `internal/server/server.go`; §4/§8 below note the one route that needs a timeout exemption.
 
 **Regulatory / external.**
-- <e.g. data-retention / deletion behaviour per ADR-NNNN>
-- <e.g. applicable compliance controls, or N/A with a reason>
+- Data classification: internal (spec §6.1) — board content is deliberately shown to a wider audience via the public link but not meant for search indexing or a long-term public archive.
+- Personal data: assignee free-text name only, unvalidated against any real user list (spec §6.1).
+- Security review required before ship — the public-link boundary is new authorization surface even at size S (spec §6.1).
 
 ## 3. Context and scope
 
-<!-- 🎯 Why: draws the SYSTEM BOUNDARY — who talks to it from outside, where the trust zone ends.
-     Without §3, §5 and §8 (authorization) blur — unclear what's «inside» vs «outside».
-     📋 Write: 2–3 sentences of business context + an external-systems table + a C4Context block.
-     📌 «External: none (deliberate, no third-party in v1)» is itself a decision worth stating.
-     Trust boundary — the line past which you don't trust data without checking it.
-     Never N/A — greenfield still draws the planned actors + external systems. -->
+A small team keeps one shared board of its current work. Team members edit the board directly from their own devices — no login. A team member can generate a single public, unpredictable link that always shows the board's live state to anyone holding it, read-only, until the team disables it.
 
-<Business context in 2–3 sentences. What the system does for whom.>
-
-<!-- brownfield: <one-line scan summary> (or «N/A — greenfield repo» if no source existed) -->
+<!-- brownfield: Go monolith scaffolded from base-tpl (api/ + web/), no product feature module exists yet — `tasks` is the first domain module added under api/internal/modules/. -->
 
 **External systems (in / out):**
 
 | Actor or system | Type | Interaction |
 |---|---|---|
-| <author role> | Person | <what they do> |
-| <external service> | System (internal/external) | <interaction> |
-| <identity provider> | System (external) | <provides auth tokens> |
+| Team member | Person | Creates/edits/drags/deletes cards; requests/disables the public link |
+| Viewer | Person | Opens the public link; watches the board read-only |
+| — | — | No third-party integration introduced. The repo's Google OAuth/JWT infra exists but is deliberately unused here (spec §3 Non-goals — no accounts for board editing) |
 
-**C4 Context (L1):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. -->
+**C4 Context (L1):**
 
 ```mermaid
 C4Context
-    title <feature> — System Context
+    title tasks — System Context
 
-    Person(actor, "<Actor role>", "<intent>")
-    System(app, "<Our system>", "<one-sentence description>")
-    System_Ext(ext, "<External system>", "<one-sentence description>")
+    Person(member, "Team member", "creates, edits, drags, and deletes cards; manages the public link")
+    Person_Ext(viewer, "Viewer", "opens the public link to watch the board read-only, no account")
 
-    Rel(actor, app, "<interaction>", "<protocol>")
-    Rel(app, ext, "<interaction>", "<protocol>")
+    System(app, "Task Tracker", "shared kanban board: 3 fixed columns, drag-and-drop cards, public read-only link")
+
+    Rel(member, app, "Edits the board", "HTTPS")
+    Rel(viewer, app, "Views the board via the public link", "HTTPS")
 ```
+
+The Context shows two people talking to one system: the team member, who edits the board with no login, and the viewer, who only ever reads it through a public link. Nothing outside the box — the feature deliberately introduces no third-party dependency.
 
 ## 4. Solution strategy
 
-<!-- 🎯 Why: the 3–4 STRATEGIC PILLARS every ADR grows from. Without §4 each ADR looks random —
-     there's no umbrella. ⭐ The densest section — the blast-radius gate fires almost always here
-     (decisions are irreversible + multi-module).
-     📋 Write: 3–4 choices; each a heading + 2–3 sentences of rationale.
-     📌 «Store content as a table of typed blocks» is a pillar — ADR-0001 grows from it. -->
-
 **Top strategic choices (the seeds for ADRs):**
 
-1. **<e.g. Module isolation through events>** — <2–3 sentences citing quality goals + constraints>.
-2. **<e.g. Single-store persistence>** — <2–3 sentences>.
-3. **<e.g. Server-rendered read side>** — <2–3 sentences>.
+1. **Target surfaces: `[backend-service, web-frontend]`.** Reuse the repo's existing `api/` (Go backend-service) and `web/` (React SPA) containers — both already exist as the base-tpl scaffold; no mobile/desktop surface is introduced.
+2. **UI-architecture (web-frontend): SPA, no SSR.** Fixed by the repo (`ssr:false`); mobile-first posture already set by `ux-flows.md`. No new state-management library — board state lives in the board page's own fetch/subscribe state, per the existing feature-slice convention (no global store observed in the repo).
+3. **Single in-process module, synchronous integration.** A new module `tasks` inside the existing Go monolith, wired through the existing pattern `server.New(..., tasks.New(db), ...)` — no cross-module events, no separate service.
+4. **Persistence: two new module-owned tables.** `cards` + `public_links` in the existing Postgres instance. Columns are a fixed enumerated order, not a database table — spec §3 Non-goals rules out column CRUD.
+5. **No cache tier.** Direct Postgres reads are comfortably sufficient at the stated scale (≤7 team members, ≥30 concurrent viewers).
+6. **Push-based realtime sync over Server-Sent Events (SSE) — ADR-0001.** Team edits and public-link state changes are broadcast to every open board page (editor and viewer) as soon as they happen, instead of the client polling for changes.
+7. **Server-authoritative last-write-wins concurrency — ADR-0002.** Every card write unconditionally overwrites, timestamped by the server; the server's processing order — not a client-supplied value — decides which change is "last".
+8. **Opaque random public-link token with a `disabled_at` flag — ADR-0003.** The link's unguessability plus a boolean-like flag (not deletion, not a signed/stateless token) satisfy AC-04/AC-05/AC-09 together.
 
-Each tactical decision in later sections should trace to one of these seeds. Tactical decisions that *contradict* a strategic choice are red flags — surface them in §11.
+Each tactical decision in later sections traces to one of these eight. ADR-0001's push choice is the one item that diverges from the cheapest default (polling) — it commits the feature to owning a small piece of new infrastructure (an in-process SSE broadcaster) that §5/§7/§11 account for.
 
 ## 5. Building block view
 
-<!-- 🎯 Why: INTERNAL DECOMPOSITION — modules, containers, datastores. The static topology: who
-     may talk to whom. Without §5, §6 (the flows) has no vocabulary of participants.
-     📋 Write: 1 ¶ on the style (layered / hexagonal / clean / event-driven) + a folder tree + a
-     C4Container block.
-     📌 Draw ONE Container per declared `target_surface` (frontmatter): a fullstack
-     [backend-service, web-frontend] = a backend-API container + a web/SPA container; a
-     [backend-service, mobile-app] = the API + the mobile app. The Container(web, …) line below is
-     just one surface's container — swap/add per what was declared in §4. → _shared/surfaces.md
-     📌 e.g. «web app, content API, media worker, datastore, object store, CDN». -->
-
-<One paragraph: layered / hexagonal / clean / event-driven, and why.>
+Layered / hexagonal, matching the repo's existing module convention exactly (`domain/ app/ infra/ ports/`, consumer-side interfaces, manual constructor injection) — no divergence from `internal/modules/user/`. The one addition beyond that convention is an in-process event broadcaster (for ADR-0001's SSE push), which lives in `app/` next to the service and is wired the same way.
 
 **Internal decomposition:**
 
 ```
-<e.g. modules/<feature>/>
-├── domain/       <entities + sentinel errors>
-├── app/          <use cases / services>
-├── infra/        <repository + integration impl>
-├── ports/        <handlers, DTOs, error mapping>
-└── wiring        <self-wiring entry point>
+api/internal/modules/tasks/
+├── domain/       <Card, PublicLink entities + sentinels: ErrCardNotFound, ErrNameRequired,
+│                  ErrLinkNotFound, ErrLinkDisabled>
+├── app/          <Service: CreateCard, UpdateCard, MoveCard, DeleteCard, GetBoard,
+│                  GenerateLink, DisableLink, ResolvePublicLink
+│                  Broadcaster: in-process pub/sub — Publish(BoardEvent), Subscribe() <-chan BoardEvent>
+├── infra/        <PostgresCardRepository, PostgresPublicLinkRepository>
+├── ports/        <Handler: board-edit routes (no auth middleware, per spec) +
+│                  public board-view route keyed by link token +
+│                  SSE handler (subscribes to Broadcaster, streams board events)>
+└── tasks.go      <module wiring: New(db) constructs repo → service+broadcaster → handler>
 ```
 
-**C4 Container (L2):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. ONE Container per declared target_surface (frontmatter); the web container below is one example surface. -->
+"Board-edit routes" are not auth-gated — spec §3 Non-goals excludes login for editing; §8 below documents this as the feature's one authorization boundary (the public link, not team-member identity).
+
+**C4 Container (L2):**
 
 ```mermaid
 C4Container
-    title <feature> — Containers
+    title tasks — Containers
 
-    Person(actor, "<Actor>")
+    Person(member, "Team member")
+    Person_Ext(viewer, "Viewer")
 
-    Container_Boundary(app, "<Our system>") {
-        Container(web, "<Web/UI>", "<technology>", "<purpose>")
-        Container(api, "<API/handler>", "<technology>", "<purpose>")
-        ContainerDb(db, "<Datastore>", "<technology>", "<purpose>")
+    Container_Boundary(app, "Task Tracker") {
+        Container(web, "Web SPA", "React Router 7, ssr:false", "board editor UI (member) + public board view UI (viewer)")
+        Container(api, "tasks module", "Go, chi", "card CRUD + drag, public-link generate/disable/resolve, SSE broadcast")
     }
 
-    System_Ext(ext, "<External>", "<purpose>")
+    ContainerDb(db, "Postgres", "pgx + golang-migrate", "cards, public_links tables")
 
-    Rel(actor, web, "<interaction>", "<protocol>")
-    Rel(web, api, "<calls>")
-    Rel(api, db, "<reads/writes>", "<driver>")
-    Rel(api, ext, "<emits>", "<protocol>")
+    Rel(member, web, "Edits the board", "HTTPS")
+    Rel(viewer, web, "Opens the public link", "HTTPS")
+    Rel(web, api, "Sends edits / subscribes to board events", "JSON+SSE over HTTPS")
+    Rel(api, db, "Reads/writes", "pgx")
 ```
+
+One backend container and one web container, matching the two declared target surfaces — no separate worker: the SSE broadcaster is in-process inside the same `api` container, not a standalone deployable. The web SPA both sends edits (member) and opens a persistent event subscription (member + viewer) against the same `api` container.
 
 ## 6. Runtime view
 
-<!-- 🎯 Why: the RUNTIME FLOW of 1–2 critical scenarios — who talks to whom, when, in what order.
-     Without §6, §5 is just boxes with no life.
-     📋 Write: a Mermaid sequenceDiagram. Participants are names from §5 (don't invent new ones).
-     Messages are semantic («saves a draft»), NO HTTP verbs / paths / status codes — endpoint-level
-     sequences arrive at the `api` stage.
-     📌 e.g. «author → web: composes draft → web → content API: save». Seed the primary flow(s) here;
-     the `sequences` stage then covers every §5 AC (no cap). Never N/A for M+; XS/S keeps ≥1 happy-path flow. -->
-
-**Critical flow 1: <flow name>**
+**Critical flow 1: Drag a card to another column (AC-01, AC-07, AC-11)**
 
 ```mermaid
 sequenceDiagram
-    actor Actor
+    actor Member
     participant Web
-    participant Service
-    participant Store
-    Actor->>Web: <action>
-    Web->>Service: <call>
-    Service->>Store: <write>
-    Store-->>Service: ok
-    Service-->>Web: result
-    Web-->>Actor: confirmation
+    participant Service as tasks module
+    participant Store as Postgres
+
+    Member->>Web: drags a card to another column
+    Web->>Service: move card to column
+    Service->>Store: update card's column, set updated_at = now()
+    alt write confirmed
+        Store-->>Service: ok
+        Service-->>Web: move confirmed
+        Service->>Service: broadcast card-moved event (fans out to every open board page)
+        Web-->>Member: card stays in the new column
+    else write fails (e.g. connection lost)
+        Service-->>Web: save error
+        Web-->>Member: card snaps back to its previous column, error shown
+    end
+    Note over Service,Store: a second near-simultaneous move on the same card simply<br/>overwrites again on arrival — the last write to reach the store<br/>wins, nothing is rejected
 ```
 
-**Critical flow 2: <e.g. async event propagation>** — <if applicable, otherwise N/A>.
+The member drags a card; the service writes the new column and a fresh server timestamp, then broadcasts the change to every open page. If the write can't be confirmed, the card visually snaps back and the member sees an error (AC-11). If two members move the same card almost at once, whichever write the server processes last simply overwrites the other — both members end up seeing that final column (AC-07).
+
+**Critical flow 2: Viewer opens the public link, board stays live, link gets disabled (AC-04–AC-06, AC-08, AC-09, AC-12)**
+
+```mermaid
+sequenceDiagram
+    actor Viewer
+    participant Web
+    participant Service as tasks module
+    participant Store as Postgres
+
+    Viewer->>Web: opens the public link
+    Web->>Service: resolve public link token
+    alt link active
+        Service->>Store: read board state
+        Store-->>Service: cards + columns
+        Service-->>Web: board state, read-only
+        Web-->>Viewer: shows the board, clearly marked view-only
+        Web->>Service: subscribe to board events (SSE)
+        loop while the tab stays open
+            Service-->>Web: pushes each card/link change as it happens
+            Web-->>Viewer: refreshes without reloading
+        end
+    else link disabled or never valid
+        Service-->>Web: not found
+        Web-->>Viewer: generic not-found page, indistinguishable from any nonexistent address
+    end
+```
+
+A viewer opening an active link sees the board's live state immediately — never a stale snapshot (AC-08) — and stays subscribed to further changes for as long as the tab is open, including the team disabling the link itself, which the same subscription delivers as a switch to not-found without a manual refresh (AC-12). A disabled or never-valid link resolves to the same generic not-found either way (AC-05), and the active board never exposes an edit control to the viewer (AC-06).
 
 ## 7. Deployment view
 
-<!-- 🎯 Why: the TOPOLOGY DevOps must know without reading the deploy charts — how many replicas,
-     where the background worker lives, AT WHAT NUMBERS we scale.
-     📋 Write: 2–3 sentences on topology + monitoring + concrete threshold numbers.
-     📌 e.g. «500 authors → partition by quarter» (not «we'll think about scale later»).
-     🎯 N/A allowed for XS/S that reuses an existing deployment unit with no change.
-     Deployment-diagram scaffold → templates/deployment.md. -->
+Reuses the existing deployment unit end to end: GHCR images → VPS → Caddy auto-TLS, per the repo's existing `deploy/` + `.github/workflows/deploy.yml` — no new infrastructure, no new exposed port. The `tasks` module ships inside the same `api` binary and the board UI inside the same `web` SPA bundle already deployed today. This resolves spec §8 open question 1 ("where is the board hosted so the public link is stable from phones during the workshop?") — the answer is the same VPS the base-tpl already deploys to, behind the same Caddy TLS termination.
 
-<Topology in 2–3 sentences. Where it runs, replicas, scaling thresholds.>
+One deployment-relevant addition from ADR-0001: the SSE route must be exempted from the shared 30 s request-timeout middleware (`internal/server/server.go`), since an SSE connection is meant to stay open for as long as the page is.
 
 **Monitoring:**
-- <Metrics — e.g. `<metric_name>`>
-- <Alerts — e.g. «worker lag > 10 min → page on-call»>
-- <Tracing — e.g. spans on the request boundary>
+- Reuse the existing `/metrics` Prometheus scrape + Grafana dashboard (`deploy/grafana/dashboards/`) — add a panel for open SSE-connection count before the workshop so a runaway client (e.g. a tab left open for days) is visible.
+- Alert: none new for v1 — manual monitoring during the workshop window per spec §6 (Availability measurement is manual).
 
 **Scaling thresholds:**
-- <e.g. comfortable in one table up to N rows/year>
-- <e.g. partition by quarter above N rows/year>
-
-<!-- For XS/S with no deployment change: <!-- N/A: reuses existing deployment unit, no infra change --> -->
+- Comfortable as-is up to the stated ≥30 concurrent viewers, each holding one open SSE connection — well inside a single Go process's connection budget.
+- The in-process broadcaster works only while the `api` runs as a single instance (today's deployment). If the API is ever horizontally scaled, the broadcast would need to move to a shared channel (e.g. Postgres `LISTEN`/`NOTIFY`) — noted as accepted debt in §11, not built now.
 
 ## 8. Crosscutting concepts
 
-<!-- 🎯 Why: CROSS-CUTTING PATTERNS spanning several modules: logging, errors, authorization, ID
-     strategy, events, caching. ⭐ The second-densest section. A pattern inside one module is NOT
-     here; a project-wide convention belongs in the convention file.
-     📋 Write: a table — concept / convention / where defined. One row per concept.
-     📌 e.g. «sortable time-based IDs generated in the app layer» as a default from the convention file. -->
-
 | Concept | Convention | Where defined |
 |---|---|---|
-| Logging | <e.g. structured, fields `module=<name>`> | <convention file §X or here> |
-| Authentication | <e.g. token-based via middleware> | <convention file §X> |
-| Error handling | <e.g. domain sentinel → ports error mapping → JSON> | <convention file §X> |
-| ID strategy | <e.g. sortable time-based ID in the app layer> | <convention file §X> |
-| Internationalisation | <e.g. N/A, single language> | — |
-| Observability | <e.g. tracing on the request boundary> | — |
-| Events | <module-specific patterns, if any> | <here> |
+| Logging | structured, repo default (RequestID + Logger middleware) | `internal/server/server.go` |
+| Authentication | none for board editing (deliberate — spec §3 Non-goals); the repo's Google OAuth/JWT stays unused by this module | spec.md §3, §6.1 |
+| Authorization | one boundary: possessing the public-link token grants read-only access; no token, no access. Editing itself is unauthenticated by design | ADR-0003, spec §6.1 |
+| Error handling | domain sentinel → `ports/errors.go` mapping → `{"error":{"code","message"}}` JSON, repo default | `.claude/rules/go-errors.md` |
+| ID strategy | repo default — UUID primary keys, consistent with the `user` module | `internal/modules/user/infra` |
+| Realtime transport | Server-Sent Events over a dedicated route, exempted from the shared 30 s request timeout; in-process pub/sub, single API instance for v1 | ADR-0001, §7 |
+| Internationalisation | N/A — single language UI text, no i18n framework introduced | — |
+| Observability | reuse existing request logging + `/metrics`; add an open-SSE-connection gauge (§7) | — |
 
 ## 9. Architecture decisions
 
-<!-- 🎯 Why: the REVERSE INDEX onto the adr/ folder. `ls adr/` gives the files; §9 gives the
-     semantics — why they exist, which SAD section they attach to, what status.
-     📋 Write: a 4-column table, one row per ADR. Mixed status is fine.
-     📌 e.g. «0001 | Store content as a table of typed blocks | Accepted | §4». -->
-
 | # | Title | Status | Section |
 |---|---|---|---|
-| <NNNN> | <imperative — e.g. "Use a sliding-window counter for rate limiting"> | Accepted | §<N> |
-| <NNNN> | <imperative — e.g. "Co-locate the worker in the API process"> | Accepted | §<N> |
+| 0001 | Push board changes to open pages over Server-Sent Events | Accepted | §4 |
+| 0002 | Resolve concurrent card writes as last-write-wins via a server-assigned timestamp | Accepted | §4 |
+| 0003 | Use an opaque random token with a `disabled_at` flag for the public board link | Accepted | §4 |
 
-ADR files live under `docs/features/<slug>/adr/NNNN-<title>.md`.
+ADR files live under `docs/features/tasks/adr/`.
 
 ## 10. Quality requirements
 
-<!-- 🎯 Why: the QUALITY TREE — take a goal from §1 and break it into concrete leaves: tests,
-     metrics, configs, drills. ⭐ Without §10, §1 is a manifesto. With §10 each declaration maps
-     to something PROVABLE.
-     📋 Write: per §1 goal — When / Then / How-verify. Numbers from spec §6 NFR VERBATIM (don't
-     round ≤250ms to ≤300ms — that's a critic F6 hit).
-     📌 e.g. «p95 ≤ 500 ms on a block update, verified by a 100 req/s load test». -->
+**QG-1. Concurrency / Accuracy (last-write-wins)**
+- **When:** two team members drag the same card to different columns within the same short window, or one drags while another deletes it.
+- **Then:** the server accepts the last-arrived change as final (AC-07); a concurrent delete always wins over a drag on the same card, and the card disappears for everyone (AC-15) — per spec §6 NFR row "Concurrency / Accuracy: останній запит на зміну колонки перемагає (AC-07); видалення перемагає над одночасним перетягуванням (AC-15)".
+- **How verify:** an integration test that fires two near-simultaneous update requests against the same card id (and a delete+move pair) and asserts the final DB state matches "the last request the server processed wins".
 
-Each top-3 goal from §1 expanded into a full scenario:
+**QG-2. Interaction latency**
+- **When:** a team member releases a dragged card.
+- **Then:** the client-measured time from release to confirmed change is p95 ≤ 300 ms — per spec §6 NFR row "Latency p95 переміщення картки (drag) | ≤ 300 ms | клієнтський час від відпускання картки до підтвердженої зміни", and works by touch as well as by mouse per the same NFR table's "Touch-переміщення карток" row.
+- **How verify:** a load/latency test against the move-card endpoint measuring p95 response time under representative concurrent load, plus the manual touch-device smoke test spec §6 requires before the event.
 
-**QG-1. <quality attribute>**
-- **When:** <trigger condition>
-- **Then:** <expected behaviour with numbers from spec §6 NFR>
-- **How verify:** <test / chaos drill / load test / metric>
-
-**QG-2. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
-
-**QG-3. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
+**QG-3. Public-access correctness and availability**
+- **When:** a viewer opens a public link that is disabled or was never valid, versus one that's active and just changed by the team.
+- **Then:** the disabled/never-valid case renders a generic not-found indistinguishable from a nonexistent address (AC-05); the active case renders the board within p95 ≤ 500 ms — spec §6 NFR row "Latency p95 завантаження борди глядачем | ≤ 500 ms" — and reflects a just-made team change within ≤ 5 s while the tab stays open — spec §6 NFR row "Свіжість борди в глядача ... ≤ 5 с"; the service holds 99% availability during the workshop window — spec §6 NFR row "Availability | 99% протягом вікна воркшопу".
+- **How verify:** an integration test asserting an identical response shape/status for a disabled vs a never-existent link token; a load test measuring first-render p95 for the public board endpoint; an SSE-delivery test asserting a card change reaches an open subscriber well inside the 5 s target.
 
 ## 11. Risks and technical debt
 
-<!-- 🎯 Why: ⭐ collects EVERYTHING that can break — not only the technical. Without §11 risks get
-     discussed at standups and lost; debt lives only in the head of whoever accepted it.
-     📋 Write: a risk/debt table — severity — mitigation — owner. Accepted debt in its own block.
-     📌 The first risk is often a product risk, not a technical one. That's normal. -->
-
-<!-- Severity literals: Low / Medium / High for regular risks; "Open question" for rows created by
-     a Save-as-OQ resolution during the Socratic walk (see references/socratic.md). -->
-
 | Risk / debt | Severity | Mitigation | Owner |
 |---|---|---|---|
-| <e.g. Worker lag may reach hours during a downstream outage> | Medium | <alert >10 min, on-call playbook, retry backoff> | <DevOps> |
-| <e.g. No event-schema versioning in v1> | Medium | <ADR-NNNN planned for v2, tolerate unknown fields> | <Backend> |
-| Open architectural decision: <decision-headline> | Open question | Resolve before <stage trigger or YYYY-MM-DD>; <inline rationale from the Save-as-OQ> | <owner> |
+| The in-process SSE broadcaster only works with a single `api` instance; horizontal scaling would silently stop fanning events out to connections on other instances | Medium | documented in §7 as a scaling threshold; move to Postgres `LISTEN`/`NOTIFY` (or similar shared channel) if the API is ever scaled beyond one instance | Backend |
+| Board editing has no authentication at all — anyone with network access to the API can write to the board | Medium (accepted) | inherited from spec §3 Non-goals / §6.1 — a trusted 3–7-person team is the accepted boundary; not re-litigated here | genkovich |
+| No backup mechanism for board state before the demo | Low | carried from spec §8 open question — no separate backup planned, relies on Postgres persistence; resolve before the workshop date | genkovich |
+| Exact workshop availability window is unknown | Low | carried from spec §8 open question — manual monitoring covers the actual event once the date is set; resolve before the workshop date | genkovich |
 
 **Accepted debt (acceptable in v1, plan to fix later):**
-- <e.g. the entity is immutable / unversioned — OK for v1, may need audit versioning in v2>
+- Board editing is unauthenticated by design (v1 scope, per spec) — acceptable for a trusted 3–7-person team; would need real auth if the editing surface ever opened beyond the team.
+- No caching tier and no shared broadcast channel — acceptable at the stated ≤30-viewer, single-instance scale; revisit both together if usage grows well past workshop scale.
 
 ## 12. Glossary
 
-<!-- 🎯 Why: ⭐ the DOMAIN GLOSSARY that ends arguments a year later («checkpoint — weekly or
-     biweekly? quarter — calendar or fiscal?»).
-     📋 Write: a term / meaning table. Business + technical terms mixed.
-     📌 e.g. «Lesson | a unit inside a course made of blocks (text, video)». -->
-
 | Term | Meaning |
 |---|---|
-| <e.g. domain object A> | <its meaning in this domain> |
-| <e.g. domain object B> | <its meaning> |
-| <e.g. domain invariant name> | <the rule, in plain language> |
+| Board (борда) | the single shared kanban board; there is exactly one board in the system, no navigation between multiple boards |
+| Card (картка) | a unit of work inside a column; has a name and an optional free-text assignee; can be dragged between columns |
+| Column (колонка) | a fixed named stage of work; the board always has exactly three, in order: To Do → In Progress → Done |
+| Assignee (виконавець) | free-text name on a card, not validated against any user/account list |
+| Viewer (глядач) | a person without an account who opens the board via the public link, read-only |
+| Team member (учасник команди) | a person from the 3–7-person team who edits the board — creates/drags/edits/deletes cards, manages the public link |
+| Public link (публічний лінк) | one unpredictable URL that serves the board's current state read-only; stays valid until a team member disables it |
+| Status (статус) | a card's current stage, determined solely by which column it's in |
+| Last-write-wins | the concurrency rule: the most recently server-processed change to a card overrides any earlier one still in flight — no rejection, no merge (ADR-0002) |
