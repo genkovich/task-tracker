@@ -102,6 +102,16 @@ func (h *Hub) Broadcast(evt ports.Event) {
 	}
 }
 
+// Subscribe registers a new connection under token and returns its event
+// channel plus a func that unregisters it — the port-facing counterpart to
+// Register/Unregister (T9's ports.SSERegistry) for consumers outside this
+// package, which cannot name the unexported connID type Register/Unregister
+// use directly.
+func (h *Hub) Subscribe(token string) (<-chan ports.Event, func()) {
+	id, ch := h.Register(token)
+	return ch, func() { h.Unregister(token, id) }
+}
+
 // CloseToken closes exactly the connections registered under token, leaving
 // team-editor connections and every other token's connections untouched
 // (events.md "Connection lifecycle" — revoke must close already-open SSE
