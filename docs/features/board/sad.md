@@ -287,13 +287,14 @@ sequenceDiagram
 
 | Concept | Convention | Where defined |
 |---|---|---|
-| Logging | <e.g. structured, fields `module=<name>`> | <convention file §X or here> |
-| Authentication | <e.g. token-based via middleware> | <convention file §X> |
-| Error handling | <e.g. domain sentinel → ports error mapping → JSON> | <convention file §X> |
-| ID strategy | <e.g. sortable time-based ID in the app layer> | <convention file §X> |
-| Internationalisation | <e.g. N/A, single language> | — |
-| Observability | <e.g. tracing on the request boundary> | — |
-| Events | <module-specific patterns, if any> | <here> |
+| Logging | Успадковано: `log/slog` JSON handler, structured key-value | `architecture-map.md` §Conventions |
+| Authorization | **Не** через наявний `authMW` (Google OAuth) — board і viewer, і team member обслуговує без входу в систему. Дві можливості розрізняються шляхом/токеном, не роллю: team-editor route (`RouteRegistrar`, публічний за визначенням — знання базового URL = право редагувати) проти public-viewer route з opaque токеном у шляху (ADR-0003, перевірка в БД, без ролей і сесій) | sad.md §4 (ADR-0003), §3 (capability model, CONTEXT glossary) |
+| Error handling | Успадковано: domain sentinel errors → `ports/errors.go` `mapError` → `apperr.Error` → `httputil.WriteError` | `architecture-map.md` §Conventions |
+| ID strategy | Успадковано: app-generated UUIDv7 через `google/uuid`, не DB `SERIAL` | `architecture-map.md` §Conventions |
+| Internationalisation | N/A — один язик (українська), продукт не має налаштувань локалі (spec не вимагає) | — |
+| Observability | Успадковано `/metrics` (Prometheus) + нові board-лічильники (§7): активні SSE-з'єднання, broadcast-події, латентність запису | sad.md §7 |
+| Events | In-process pub/sub у межах одного `api`-процесу для SSE-розсилки (ADR-0002) — не крос-модульна шина подій, локально для `board`-модуля | sad.md §4 (ADR-0002) |
+| Rate limiting | Нове: in-process token bucket на клієнта (по IP), обмежений до ендпоінта створення task, ≤30 створень/хв (spec §6.1 abuse case). Reversible, contained в одному модулі — жодної нової інфраструктури (Redis тощо) не потрібно при одноінстансному деплойменті (§7) | sad.md §7, §8 (тут) |
 
 ## 9. Architecture decisions
 
@@ -304,8 +305,10 @@ sequenceDiagram
 
 | # | Title | Status | Section |
 |---|---|---|---|
-| <NNNN> | <imperative — e.g. "Use a sliding-window counter for rate limiting"> | Accepted | §<N> |
-| <NNNN> | <imperative — e.g. "Co-locate the worker in the API process"> | Accepted | §<N> |
+| 0001 | Build board as a backend API plus a web SPA | Accepted | §4 |
+| 0002 | Push board state changes via Server-Sent Events | Accepted | §4 |
+| 0003 | Use an opaque DB-stored token for the public link | Accepted | §4 |
+| 0004 | Fix the board's columns as seeded, non-editable stages | Accepted | §4 |
 
 ADR files live under `docs/features/<slug>/adr/NNNN-<title>.md`.
 
