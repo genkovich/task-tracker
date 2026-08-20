@@ -371,6 +371,13 @@ Each top-3 goal from §1 expanded into a full scenario:
 
 | Term | Meaning |
 |---|---|
-| <e.g. domain object A> | <its meaning in this domain> |
-| <e.g. domain object B> | <its meaning> |
-| <e.g. domain invariant name> | <the rule, in plain language> |
+| board (борда) | Єдина канбан-дошка продукту — в системі завжди рівно одна (CONTEXT glossary). |
+| column (колонка) | Іменований етап робочого процесу; належність task до column і є її статусом; у v1 — фіксований, незмінний набір (ADR-0004) (CONTEXT glossary). |
+| task (задача) | Одиниця роботи на борді, належить рівно одній column у кожен момент (CONTEXT glossary). |
+| assignee (виконавець) | Вільнотекстове ім'я в полі задачі, не пов'язане з жодним акаунтом (CONTEXT glossary). |
+| public link (публічний лінк) | Неавтентифікована URL-адреса з opaque токеном (ADR-0003), що віддає стан board лише на перегляд (CONTEXT glossary). |
+| team member (учасник команди) | Людина, що редагує board напряму, без входу в систему (CONTEXT glossary). |
+| viewer (глядач) | Будь-хто, хто відкрив public link; лише перегляд (CONTEXT glossary). |
+| last-write-wins | Домен-інваріант конкурентного запису (AC-05b): коли двоє team member одночасно змінюють ту саму task, перемагає та зміна, що дійшла до системи останньою — без явного версіювання чи блокування. **Не в CONTEXT.md як окремий термін** — рекомендація: `/sdd:glossary board` додасть його явно. |
+
+<!-- Glossary follow-up: "last-write-wins" surfaced during the design walk as a named domain invariant but is not yet a CONTEXT.md term (CONTEXT states the invariant inline without naming it) — flagged in the handoff below. -->
