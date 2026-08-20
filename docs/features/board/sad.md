@@ -36,12 +36,6 @@ target_surfaces: [backend-service, web-frontend]  # filled in §4 — subset of:
 
 ## 2. Constraints
 
-<!-- 🎯 Why: §4 strategy only works when §2 has fixed WHAT IS ALREADY FIXED — stack, versions,
-     deadline, regulatory. This is an input, not an output.
-     📋 Write: four blocks — Technical / Organisational / Conventions / Regulatory.
-     📌 Pin versions («<datastore> 18», not «<datastore>»); «Q3 deadline — hard», not «ideally».
-     Never N/A — every feature inherits at least Conventions + Technical. -->
-
 **Technical.**
 - Backend: Go 1.25.0, chi/v5 (routing), pgx/v5 + pgxpool (Postgres driver), golang-migrate/v4, google/uuid v7, prometheus/client_golang (`docs/architecture-map.md` §Stack).
 - Frontend: React 19.2.4 + React Router 7.12.0 **SPA mode** (`ssr: false` — repo-wide, not per-feature), Vite 7.1.7, Tailwind 4.1.13 + shadcn/ui + CVA.
@@ -50,7 +44,7 @@ target_surfaces: [backend-service, web-frontend]  # filled in §4 — subset of:
 
 **Organisational.**
 - Effort budget: ~3 person-weeks (idea-brief §11 RICE Effort signal, Approach C).
-- Deadline: hard — the nearest workshop is the trigger event (spec §1 Context), but no calendar date is fixed in any upstream artifact (idea-brief, spec) — **`<TBD by PM>`**, tracked as a §11 risk row.
+- Deadline: hard — the nearest workshop is the trigger event (spec §1 Context), but no calendar date is fixed in any upstream artifact (idea-brief, spec) — **TBD by PM**, tracked as a §11 risk row.
 - Team composition: solo author driving both product and implementation (idea-brief §3 Users, §12 Feasibility «Skills» — full-cycle expertise already in hand).
 
 **Conventions.**
@@ -64,13 +58,6 @@ target_surfaces: [backend-service, web-frontend]  # filled in §4 — subset of:
 - Security review is **required** before ship — spec §6.1 names the new unauthenticated public read access as the project's primary risk (idea-brief §10 devil's-advocate risk: a leaked/indexed link exposes team data indefinitely without revocation).
 
 ## 3. Context and scope
-
-<!-- 🎯 Why: draws the SYSTEM BOUNDARY — who talks to it from outside, where the trust zone ends.
-     Without §3, §5 and §8 (authorization) blur — unclear what's «inside» vs «outside».
-     📋 Write: 2–3 sentences of business context + an external-systems table + a C4Context block.
-     📌 «External: none (deliberate, no third-party in v1)» is itself a decision worth stating.
-     Trust boundary — the line past which you don't trust data without checking it.
-     Never N/A — greenfield still draws the planned actors + external systems. -->
 
 Board — рівно одна спільна канбан-дошка команди. team member редагує її напряму, без входу в систему; будь-хто, хто отримав public link від team member, відкриває board виключно на перегляд, теж без входу в систему.
 
@@ -103,12 +90,6 @@ Board показаний як один чорний ящик: team member вза
 
 ## 4. Solution strategy
 
-<!-- 🎯 Why: the 3–4 STRATEGIC PILLARS every ADR grows from. Without §4 each ADR looks random —
-     there's no umbrella. ⭐ The densest section — the blast-radius gate fires almost always here
-     (decisions are irreversible + multi-module).
-     📋 Write: 3–4 choices; each a heading + 2–3 sentences of rationale.
-     📌 «Store content as a table of typed blocks» is a pillar — ADR-0001 grows from it. -->
-
 **Top strategic choices (the seeds for ADRs):**
 
 1. **Target surface: backend API + web SPA** — board — це Go REST API (`backend-service`) плюс React SPA (`web-frontend`), єдине джерело істини — Postgres через API; і team member, і viewer завжди бачать той самий стан (ux-flows.md — 6 екранів). → **ADR-0001**.
@@ -119,16 +100,6 @@ Board показаний як один чорний ящик: team member вза
 Each tactical decision in later sections should trace to one of these seeds. Tactical decisions that *contradict* a strategic choice are red flags — surface them in §11.
 
 ## 5. Building block view
-
-<!-- 🎯 Why: INTERNAL DECOMPOSITION — modules, containers, datastores. The static topology: who
-     may talk to whom. Without §5, §6 (the flows) has no vocabulary of participants.
-     📋 Write: 1 ¶ on the style (layered / hexagonal / clean / event-driven) + a folder tree + a
-     C4Container block.
-     📌 Draw ONE Container per declared `target_surface` (frontmatter): a fullstack
-     [backend-service, web-frontend] = a backend-API container + a web/SPA container; a
-     [backend-service, mobile-app] = the API + the mobile app. The Container(web, …) line below is
-     just one surface's container — swap/add per what was declared in §4. → _shared/surfaces.md
-     📌 e.g. «web app, content API, media worker, datastore, object store, CDN». -->
 
 Backend — layered модуль за наявною конвенцією репо (`domain/app/ports/infra`, ручний constructor-injection, ADR-0001): новий модуль `board` без наявних module-to-module залежностей (auth/user не зачіпаються, ADR-0001 контекст). Frontend — FSD-фіча `board` (api/model/ui) плюс окрема сторінка для публічного read-only перегляду, обидві композуються з наявних shadcn/ui-примітивів (`architecture-map.md` §Frontend), без нового styling-підходу.
 
@@ -174,14 +145,6 @@ C4Container
 ```
 
 ## 6. Runtime view
-
-<!-- 🎯 Why: the RUNTIME FLOW of 1–2 critical scenarios — who talks to whom, when, in what order.
-     Without §6, §5 is just boxes with no life.
-     📋 Write: a Mermaid sequenceDiagram. Participants are names from §5 (don't invent new ones).
-     Messages are semantic («saves a draft»), NO HTTP verbs / paths / status codes — endpoint-level
-     sequences arrive at the `api` stage.
-     📌 e.g. «author → web: composes draft → web → content API: save». Seed the primary flow(s) here;
-     the `sequences` stage then covers every §5 AC (no cap). Never N/A for M+; XS/S keeps ≥1 happy-path flow. -->
 
 **Critical flow 1: Team member перетягує task, зміна доходить до всіх живих клієнтів (AC-04, ADR-0002)**
 
@@ -257,13 +220,6 @@ sequenceDiagram
 
 ## 7. Deployment view
 
-<!-- 🎯 Why: the TOPOLOGY DevOps must know without reading the deploy charts — how many replicas,
-     where the background worker lives, AT WHAT NUMBERS we scale.
-     📋 Write: 2–3 sentences on topology + monitoring + concrete threshold numbers.
-     📌 e.g. «500 authors → partition by quarter» (not «we'll think about scale later»).
-     🎯 N/A allowed for XS/S that reuses an existing deployment unit with no change.
-     Deployment-diagram scaffold → templates/deployment.md. -->
-
 **Це закриває spec §8 Open Question 1** («де хоститься board, щоб public link був стабільно доступний з телефонів глядачів у залі воркшопу»): board не отримує нової інфраструктури — вона розгортається в тому самому одноінстансному VPS-стеку, що вже є в репо (`deploy/docker-compose.prod.yml`, `deploy/Caddyfile`, `.github/workflows/deploy.yml`): один контейнер `api` (тепер несе й board-модуль), один `web` (SPA), один `postgres`, за Caddy з автоматичним TLS на публічному домені `${DOMAIN}`. Публічний домен з HTTPS — і є відповідь на «доступність з телефонів у залі»: жодна мережа воркшопу не потрібна, глядачі йдуть у звичайний інтернет.
 
 **Специфічна вимога ADR-0002 (SSE):** Caddy reverse-proxy для `/api/*` не повинен буферизувати SSE-потік (`encode` + типове буферизоване проксіювання зіпсують push-доставку) — для SSE-ендпоінта board потрібен `flush_interval -1` (негайний flush) у `reverse_proxy`-директиві `deploy/Caddyfile`; це конфігураційна зміна existing Caddyfile, не нова інфраструктура.
@@ -279,12 +235,6 @@ sequenceDiagram
 
 ## 8. Crosscutting concepts
 
-<!-- 🎯 Why: CROSS-CUTTING PATTERNS spanning several modules: logging, errors, authorization, ID
-     strategy, events, caching. ⭐ The second-densest section. A pattern inside one module is NOT
-     here; a project-wide convention belongs in the convention file.
-     📋 Write: a table — concept / convention / where defined. One row per concept.
-     📌 e.g. «sortable time-based IDs generated in the app layer» as a default from the convention file. -->
-
 | Concept | Convention | Where defined |
 |---|---|---|
 | Logging | Успадковано: `log/slog` JSON handler, structured key-value | `architecture-map.md` §Conventions |
@@ -298,11 +248,6 @@ sequenceDiagram
 
 ## 9. Architecture decisions
 
-<!-- 🎯 Why: the REVERSE INDEX onto the adr/ folder. `ls adr/` gives the files; §9 gives the
-     semantics — why they exist, which SAD section they attach to, what status.
-     📋 Write: a 4-column table, one row per ADR. Mixed status is fine.
-     📌 e.g. «0001 | Store content as a table of typed blocks | Accepted | §4». -->
-
 | # | Title | Status | Section |
 |---|---|---|---|
 | 0001 | Build board as a backend API plus a web SPA | Accepted | §4 |
@@ -313,13 +258,6 @@ sequenceDiagram
 ADR files live under `docs/features/<slug>/adr/NNNN-<title>.md`.
 
 ## 10. Quality requirements
-
-<!-- 🎯 Why: the QUALITY TREE — take a goal from §1 and break it into concrete leaves: tests,
-     metrics, configs, drills. ⭐ Without §10, §1 is a manifesto. With §10 each declaration maps
-     to something PROVABLE.
-     📋 Write: per §1 goal — When / Then / How-verify. Numbers from spec §6 NFR VERBATIM (don't
-     round ≤250ms to ≤300ms — that's a critic F6 hit).
-     📌 e.g. «p95 ≤ 500 ms on a block update, verified by a 100 req/s load test». -->
 
 Each top-3 goal from §1 expanded into a full scenario:
 
@@ -340,11 +278,6 @@ Each top-3 goal from §1 expanded into a full scenario:
 
 ## 11. Risks and technical debt
 
-<!-- 🎯 Why: ⭐ collects EVERYTHING that can break — not only the technical. Without §11 risks get
-     discussed at standups and lost; debt lives only in the head of whoever accepted it.
-     📋 Write: a risk/debt table — severity — mitigation — owner. Accepted debt in its own block.
-     📌 The first risk is often a product risk, not a technical one. That's normal. -->
-
 <!-- Severity literals: Low / Medium / High for regular risks; "Open question" for rows created by
      a Save-as-OQ resolution during the Socratic walk (see references/socratic.md). -->
 
@@ -363,11 +296,6 @@ Each top-3 goal from §1 expanded into a full scenario:
 - Жодного event-schema versioning для SSE-подій у v1 — подія лише сигналізує «стан змінився» (тригер на refetch), без власного payload, що потребував би версіювання.
 
 ## 12. Glossary
-
-<!-- 🎯 Why: ⭐ the DOMAIN GLOSSARY that ends arguments a year later («checkpoint — weekly or
-     biweekly? quarter — calendar or fiscal?»).
-     📋 Write: a term / meaning table. Business + technical terms mixed.
-     📌 e.g. «Lesson | a unit inside a course made of blocks (text, video)». -->
 
 | Term | Meaning |
 |---|---|
