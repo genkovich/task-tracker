@@ -130,39 +130,47 @@ Each tactical decision in later sections should trace to one of these seeds. Tac
      just one surface's container — swap/add per what was declared in §4. → _shared/surfaces.md
      📌 e.g. «web app, content API, media worker, datastore, object store, CDN». -->
 
-<One paragraph: layered / hexagonal / clean / event-driven, and why.>
+Backend — layered модуль за наявною конвенцією репо (`domain/app/ports/infra`, ручний constructor-injection, ADR-0001): новий модуль `board` без наявних module-to-module залежностей (auth/user не зачіпаються, ADR-0001 контекст). Frontend — FSD-фіча `board` (api/model/ui) плюс окрема сторінка для публічного read-only перегляду, обидві композуються з наявних shadcn/ui-примітивів (`architecture-map.md` §Frontend), без нового styling-підходу.
 
 **Internal decomposition:**
 
 ```
-<e.g. modules/<feature>/>
-├── domain/       <entities + sentinel errors>
-├── app/          <use cases / services>
-├── infra/        <repository + integration impl>
-├── ports/        <handlers, DTOs, error mapping>
-└── wiring        <self-wiring entry point>
+api/internal/modules/board/
+├── domain/       <Board, Column (fixed set, ADR-0004), Task entities + sentinel errors>
+├── app/          <BoardService: CreateTask/EditTask/MoveTask/DeleteTask/IssueLink/RevokeLink/GetState>
+├── infra/        <Postgres repo (pgx) + in-process SSE hub (ADR-0002, broadcast to subscribed connections)>
+├── ports/        <HTTP handlers (team-editor routes, public-viewer routes by token, SSE endpoint), DTOs, mapError>
+└── board.go      <New(...) *ports.Handler, wired in api/cmd/api/main.go — no authMW (ADR-0001 context, no accounts)>
+
+web/src/
+├── pages/board/            <editor view — composes features/board, features/public-link (SCR-01, SCR-04)>
+├── pages/board-public/     <public read-only view by link token (SCR-05, SCR-06)>
+└── features/board/
+    ├── api/                <typed client calls + SSE subscription (ADR-0002)>
+    ├── model/               <drag-and-drop state, optimistic UI for create/edit/move/delete>
+    └── ui/                  <task card, column, quick-add (SCR-02), edit modal (SCR-03)>
 ```
 
-**C4 Container (L2):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. ONE Container per declared target_surface (frontmatter); the web container below is one example surface. -->
+**C4 Container (L2):**
 
 ```mermaid
 C4Container
-    title <feature> — Containers
+    title board — Containers
 
-    Person(actor, "<Actor>")
+    Person(member, "Team member")
+    Person(viewer, "Viewer")
 
-    Container_Boundary(app, "<Our system>") {
-        Container(web, "<Web/UI>", "<technology>", "<purpose>")
-        Container(api, "<API/handler>", "<technology>", "<purpose>")
-        ContainerDb(db, "<Datastore>", "<technology>", "<purpose>")
+    Container_Boundary(app, "Board") {
+        Container(web, "Web SPA", "React 19 + React Router 7 (SPA)", "editor UI (SCR-01..04) + public read-only view (SCR-05/06); SSE client")
+        Container(api, "Board API", "Go + chi", "REST endpoints (create/edit/move/delete task, issue/revoke link) + SSE broadcast endpoint")
     }
 
-    System_Ext(ext, "<External>", "<purpose>")
+    ContainerDb(pg, "PostgreSQL 18", "pgx/v5", "boards, columns (fixed seed, ADR-0004), tasks, public link tokens (ADR-0003)")
 
-    Rel(actor, web, "<interaction>", "<protocol>")
-    Rel(web, api, "<calls>")
-    Rel(api, db, "<reads/writes>", "<driver>")
-    Rel(api, ext, "<emits>", "<protocol>")
+    Rel(member, web, "Редагує board напряму", "HTTPS")
+    Rel(viewer, web, "Відкриває public link", "HTTPS")
+    Rel(web, api, "REST виклики + підписка на оновлення", "JSON/HTTPS + SSE (ADR-0002)")
+    Rel(api, pg, "Читає/записує стан board", "pgx (SQL, $1 params)")
 ```
 
 ## 6. Runtime view
