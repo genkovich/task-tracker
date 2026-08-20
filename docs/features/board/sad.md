@@ -43,23 +43,25 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
      Never N/A — every feature inherits at least Conventions + Technical. -->
 
 **Technical.**
-- <Language + version>
-- <Framework(s) + version>
-- <Datastore(s) + version>
-- <Architecture convention — e.g. the layering style from the project convention file>
+- Backend: Go 1.25.0, chi/v5 (routing), pgx/v5 + pgxpool (Postgres driver), golang-migrate/v4, google/uuid v7, prometheus/client_golang (`docs/architecture-map.md` §Stack).
+- Frontend: React 19.2.4 + React Router 7.12.0 **SPA mode** (`ssr: false` — repo-wide, not per-feature), Vite 7.1.7, Tailwind 4.1.13 + shadcn/ui + CVA.
+- Datastore: PostgreSQL 18 (`postgres:18-alpine`), accessed via pgx/v5 repo pattern; no other datastore in the repo today.
+- Architecture convention: modular monolith, manual constructor-injection wiring (`api/cmd/api/main.go`); each module owns `domain/app/ports/infra` + a top-level `New(...)` (`CLAUDE.md` §Architecture, `.claude/rules/go-*.md`).
 
 **Organisational.**
-- <Effort budget — e.g. 3 person-weeks>
-- <Deadline — e.g. 2026-Q3 hard>
-- <Team composition>
+- Effort budget: ~3 person-weeks (idea-brief §11 RICE Effort signal, Approach C).
+- Deadline: hard — the nearest workshop is the trigger event (spec §1 Context), but no calendar date is fixed in any upstream artifact (idea-brief, spec) — **`<TBD by PM>`**, tracked as a §11 risk row.
+- Team composition: solo author driving both product and implementation (idea-brief §3 Users, §12 Feasibility «Skills» — full-cycle expertise already in hand).
 
 **Conventions.**
-- <Link to the project's convention file>
-- <Naming, ID strategy, error-handling pattern>
+- `.claude/rules/go-*.md` (naming, error handling, concurrency, context, structs/interfaces, security, observability) + `.claude/rules/migrations.md` (paired `.up.sql`/`.down.sql`, sequential 6-digit numbering, current head `000005`).
+- IDs: app-generated UUIDv7 via `google/uuid`, never DB `SERIAL`/`gen_random_uuid()`.
+- Error handling: domain sentinel errors → per-module `ports/errors.go` `mapError` → `apperr.Error` → `httputil.WriteError`.
+- Frontend: Feature-Sliced Design (`app/ → pages/ → widgets/ → features/ → entities/ → shared/`), typed API client (`web/src/shared/api/client.ts`), UI composed from `shared/ui` shadcn primitives — never hand-edited.
 
 **Regulatory / external.**
-- <e.g. data-retention / deletion behaviour per ADR-NNNN>
-- <e.g. applicable compliance controls, or N/A with a reason>
+- No formal compliance regime applies (internal team tool, no accounts, no regulated data categories) — spec §6.1 classifies task titles/assignee names as **internal** data, not personal-data-regulated beyond the free-text assignee name.
+- Security review is **required** before ship — spec §6.1 names the new unauthenticated public read access as the project's primary risk (idea-brief §10 devil's-advocate risk: a leaked/indexed link exposes team data indefinitely without revocation).
 
 ## 3. Context and scope
 
