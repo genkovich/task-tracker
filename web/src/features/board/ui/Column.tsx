@@ -12,6 +12,9 @@ export interface ColumnProps {
   onTaskClick?: (task: Task) => void;
   onTaskDragStart?: (task: Task) => void;
   onDropTask?: (taskId: string) => void;
+  /** SCR-05 public viewer (AC-10): renders view-only — no quick-add and no
+   * draggable cards, regardless of `isLeftmost`/handlers passed in. */
+  readOnly?: boolean;
 }
 
 /** One board column: name + its ordered task list (SCR-01), plus the
@@ -22,15 +25,16 @@ export function Column({
   onTaskClick,
   onTaskDragStart,
   onDropTask,
+  readOnly,
 }: ColumnProps) {
   const [tasks, setTasks] = useState<Task[]>(column.tasks);
 
   return (
     <Card
       className="w-72 shrink-0 gap-3 py-4"
-      onDragOver={onDropTask ? (e) => e.preventDefault() : undefined}
+      onDragOver={!readOnly && onDropTask ? (e) => e.preventDefault() : undefined}
       onDrop={
-        onDropTask
+        !readOnly && onDropTask
           ? (e) => {
               e.preventDefault();
               const taskId = e.dataTransfer.getData("text/plain");
@@ -44,9 +48,17 @@ export function Column({
       </CardHeader>
       <CardContent className="flex flex-col gap-2 px-4">
         {tasks.map((task) => (
-          <TaskCard key={task.id} task={task} onClick={onTaskClick} onDragStart={onTaskDragStart} />
+          <TaskCard
+            key={task.id}
+            task={task}
+            onClick={readOnly ? undefined : onTaskClick}
+            onDragStart={readOnly ? undefined : onTaskDragStart}
+            draggable={!readOnly}
+          />
         ))}
-        {isLeftmost && <QuickAddTask onCreated={(task) => setTasks((prev) => [...prev, task])} />}
+        {isLeftmost && !readOnly && (
+          <QuickAddTask onCreated={(task) => setTasks((prev) => [...prev, task])} />
+        )}
       </CardContent>
     </Card>
   );

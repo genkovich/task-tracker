@@ -26,6 +26,12 @@ export interface BoardState {
   public_link: PublicLink | null;
 }
 
+// Public-viewer view of the board (AC-09, AC-10) — same columns/tasks shape,
+// no `public_link` (irrelevant to a viewer already holding one).
+export interface PublicBoardState {
+  columns: Column[];
+}
+
 export interface TaskCreate {
   title: string;
   assignee?: string | null;
