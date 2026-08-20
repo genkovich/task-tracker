@@ -24,6 +24,14 @@ type BoardState struct {
 	PublicLink *domain.PublicLink
 }
 
+// PublicBoardState is the read-only viewer shape returned by
+// StateService.GetPublicBoardState (AC-09) — columns and tasks only,
+// deliberately no PublicLink field, matching the PublicBoardState schema in
+// contracts/openapi.yaml (T6: "must not expose team-editor-only fields").
+type PublicBoardState struct {
+	Columns []ColumnState
+}
+
 // Repository is the persistence port app (T5/T6) depends on. infra's
 // PostgresRepository is the sole implementation (sad.md §5).
 type Repository interface {
@@ -67,4 +75,9 @@ type Repository interface {
 	// PublicLinkByToken looks up a public link by its opaque token
 	// (AC-09/AC-11). Returns domain.ErrLinkNotFound if token is unknown.
 	PublicLinkByToken(ctx context.Context, token string) (*domain.PublicLink, error)
+
+	// PublicLinkByBoard looks up a board's active public link, if any
+	// (AC-08: RevokePublicLink needs the token to close before deleting the
+	// row). Returns domain.ErrLinkNotFound if the board has no active link.
+	PublicLinkByBoard(ctx context.Context, boardID uuid.UUID) (*domain.PublicLink, error)
 }

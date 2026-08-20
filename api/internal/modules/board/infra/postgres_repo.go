@@ -248,3 +248,16 @@ func (r *PostgresRepository) PublicLinkByToken(ctx context.Context, token string
 	}
 	return &link, nil
 }
+
+// PublicLinkByBoard looks up a board's active public link, so RevokePublicLink
+// callers know which token to close before deleting the row (AC-08).
+func (r *PostgresRepository) PublicLinkByBoard(ctx context.Context, boardID uuid.UUID) (*domain.PublicLink, error) {
+	link, err := r.publicLinkForBoard(ctx, boardID)
+	if err != nil {
+		return nil, fmt.Errorf("public link by board: %w", err)
+	}
+	if link == nil {
+		return nil, domain.ErrLinkNotFound
+	}
+	return link, nil
+}
