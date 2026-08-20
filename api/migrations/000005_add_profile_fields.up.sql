@@ -1,0 +1,5 @@
+ALTER TABLE users
+  ADD COLUMN position VARCHAR(200),
+  ADD COLUMN department VARCHAR(200),
+  ADD COLUMN bio TEXT,
+  ADD COLUMN timezone VARCHAR(50);

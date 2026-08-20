@@ -1,0 +1,91 @@
+# Пост-деплой вартовий: після кожного зеленого Deploy стоїть на варті WATCH_MINUTES,
+# циклами знімає readyz, 5xx-rate і p95 (через Prometheus у docker-мережі) та логи api.
+# Деградація → джоба червона + Claude готує draft-PR з фіксом (потрібен
+# CLAUDE_CODE_OAUTH_TOKEN; без нього лишається червона джоба зі звітом).
+name: Post-deploy watch
+
+on:
+  workflow_run:
+    workflows: [Deploy]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+env:
+  WATCH_MINUTES: 20
+  ROUND_SECONDS: 240
+
+jobs:
+  watch:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Stand watch
+        id: watch
+        run: |
+          SSH="ssh -i ~/.ssh/deploy_key ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}"
+          APP_DIR=/opt/$(echo "${{ github.repository }}" | cut -d/ -f2)
+          PROM="docker compose -f docker-compose.prod.yml exec -T prometheus wget -qO-"
+          ROUNDS=$(( WATCH_MINUTES * 60 / ROUND_SECONDS ))
+          HAS_PROM=$($SSH "cd $APP_DIR && docker compose -f docker-compose.prod.yml ps --services 2>/dev/null | grep -c '^prometheus$'" || echo 0)
+          REPORT=sentinel-report.md
+          echo "# Sentinel report — deploy ${{ github.event.workflow_run.head_sha }}" > $REPORT
+          BASE_P95=""
+          FAIL=""
+          for i in $(seq 1 $ROUNDS); do
+            READY=$($SSH "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/readyz" || echo 000)
+            if [ "$HAS_PROM" = "1" ]; then
+              RATE5=$($SSH "cd $APP_DIR && $PROM 'http://localhost:9090/api/v1/query?query=sum(rate(http_requests_total%7Bstatus%3D~%225..%22%7D%5B5m%5D))'" \
+                | python3 -c "import json,sys; r=json.load(sys.stdin)['data']['result']; print(float(r[0]['value'][1]) if r else 0)")
+              P95=$($SSH "cd $APP_DIR && $PROM 'http://localhost:9090/api/v1/query?query=histogram_quantile(0.95,sum(rate(http_request_duration_seconds_bucket%5B5m%5D))%20by%20(le))'" \
+                | python3 -c "import json,sys; r=json.load(sys.stdin)['data']['result']; v=r[0]['value'][1] if r else 'NaN'; print(v)")
+            else
+              RATE5=0; P95=NaN   # без батарейки observability вахта тримає лише readyz + логи
+            fi
+            PANICS=$($SSH "cd $APP_DIR && docker compose -f docker-compose.prod.yml logs api --since 5m 2>/dev/null | grep -ciE 'panic|fatal'" || echo 0)
+            echo "- round $i/$ROUNDS: readyz=$READY 5xx_rate=$RATE5 p95=${P95}s panics=$PANICS" | tee -a $REPORT
+            [ "$READY" != "200" ] && FAIL="readyz=$READY"
+            [ "$PANICS" != "0" ] && FAIL="panics=$PANICS"
+            python3 -c "exit(0 if float('$RATE5') <= 0.001 else 1)" || FAIL="5xx_rate=$RATE5"
+            if [ -z "$BASE_P95" ] && [ "$P95" != "NaN" ]; then BASE_P95=$P95; fi
+            if [ -n "$BASE_P95" ] && [ "$P95" != "NaN" ]; then
+              python3 -c "exit(0 if float('$P95') <= 2*float('$BASE_P95') + 0.05 else 1)" || FAIL="p95=$P95 (baseline $BASE_P95)"
+            fi
+            if [ -n "$FAIL" ]; then
+              echo "## DEGRADATION: $FAIL" | tee -a $REPORT
+              $SSH "cd $APP_DIR && docker compose -f docker-compose.prod.yml logs api --since 10m 2>/dev/null | tail -80" >> $REPORT
+              cat $REPORT >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            [ $i -lt $ROUNDS ] && sleep $ROUND_SECONDS
+          done
+          echo "## VERDICT: healthy — $ROUNDS rounds clean" | tee -a $REPORT
+          cat $REPORT >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Claude prepares a fix PR
+        if: failure()
+        uses: anthropics/claude-code-action@v1
+        continue-on-error: true
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Пост-деплой вартовий зафіксував деградацію прода після деплою
+            ${{ github.event.workflow_run.head_sha }}. Звіт вартового — у файлі
+            sentinel-report.md у робочій теці цього ранера. Прочитай його,
+            знайди ймовірну причину в коді цього репозиторію, підготуй
+            МІНІМАЛЬНИЙ фікс у гілці sentinel/fix-<коротко> і відкрий draft
+            pull request з поясненням: що зламалось (цитуй метрики зі звіту),
+            чому, що міняє фікс. Якщо причина не в коді (інфраструктура,
+            секрети) — замість PR відкрий issue з діагнозом.

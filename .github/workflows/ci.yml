@@ -1,0 +1,117 @@
+# CI: ганяє ті самі перевірки, що й `make check` локально — поведінка ідентична.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.27"
+  # battery:web
+  NODE_VERSION: "24"
+  # /battery:web
+
+jobs:
+  api-vet:
+    name: API · Vet
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: api } }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: api/go.sum
+      - name: go mod verify
+        run: go mod verify
+      - name: Check go mod tidy is clean
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+      - name: make vet
+        run: make vet
+
+  api-lint:
+    name: API · Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: api/go.sum
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          working-directory: api
+          args: --timeout 5m
+
+  api-test:
+    name: API · Unit tests
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: api } }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: api/go.sum
+      - name: Build
+        run: go build ./...
+      - name: Unit tests (race + shuffle)
+        run: go test -race -shuffle=on ./...
+
+  api-integration:
+    name: API · Integration tests
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: api } }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: api/go.sum
+      - name: Integration tests (testcontainers)
+        run: go test -tags integration -p 4 -count=1 ./...
+
+  api-govulncheck:
+    name: API · Vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: api/go.sum
+      # Сканується прод-граф (./cmd/...): тест-хелпер dbtest тягне testcontainers →
+      # docker/docker, чиї CVE не мають фікса і в прод-бінарник не потрапляють.
+      - uses: golang/govulncheck-action@v1
+        with:
+          work-dir: api
+          go-package: ./cmd/...
+
+  # battery:web
+  web-check:
+    name: Web · Typecheck + tests + build
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: web } }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: npm ci
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+      - name: Build
+        run: npm run build
+  # /battery:web

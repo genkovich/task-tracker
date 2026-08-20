@@ -1,0 +1,34 @@
+# {$DOMAIN} — основний застосунок; домени приходять з .env на VPS.
+# battery:observability
+# {$GRAFANA_DOMAIN} — Grafana з метриками.
+# /battery:observability
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy api:8080
+	}
+	# Health-и наживо з домену — по /readyz гейтиться деплой.
+	handle /livez {
+		reverse_proxy api:8080
+	}
+	handle /readyz {
+		reverse_proxy api:8080
+	}
+	# Локальне файлове сховище (аватари) віддає API.
+	handle /files/* {
+		reverse_proxy api:8080
+	}
+	# battery:web
+	handle {
+		reverse_proxy web:80
+	}
+	# /battery:web
+}
+
+# battery:observability
+{$GRAFANA_DOMAIN} {
+	reverse_proxy grafana:3000
+}
+# /battery:observability

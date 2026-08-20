@@ -1,0 +1,32 @@
+# Агентне code-review на кожен PR: Claude читає дифф і лишає рев'ю-коментар.
+# Потребує секрет CLAUDE_CODE_OAUTH_TOKEN (згенерувати: `claude setup-token`).
+# Без секрета джоба скіпається тихо — воркфлоу безпечний для форків.
+name: Claude Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  review:
+    if: '!github.event.pull_request.draft'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@v1
+        continue-on-error: true
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Зроби code-review цього PR: коректність, безпека, відповідність
+            конвенціям репо (CLAUDE.md, docs/architecture-map.md) і спекам у
+            docs/features/. Знахідки — інлайн-коментарями; підсумок — одним
+            коментарем з вердиктом.

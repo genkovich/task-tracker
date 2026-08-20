@@ -1,0 +1,8 @@
+.DS_Store
+.env
+.idea/
+.vscode/
+.worktrees/
+node_modules/
+*.local.md
+.claude/settings.local.json

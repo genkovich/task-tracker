@@ -1,0 +1,9 @@
+.git
+.idea
+.env
+.env.local
+bin/
+tmp/
+*.test
+*.out
+coverage.html

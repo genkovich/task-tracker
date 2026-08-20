@@ -1,0 +1,121 @@
+# golangci-lint config for task-tracker-api — golangci-lint v2 schema, Go 1.25.
+#
+# Run:  make lint   (runs `golangci-lint run ./...` inside api/)
+#
+# Design goal: CONSERVATIVE and non-breaking on the existing tree. It enables the
+# linters the repo's .claude/rules/*.md actually promise, and deliberately leaves
+# high-noise opinionated linters (funlen, gocyclo, dupl, gosec, wsl_v5, godot,
+# revive's full ruleset, mnd, ...) OFF so adoption is a clean pass, not a flood.
+# Tighten incrementally once the baseline is green.
+version: "2"
+
+run:
+  concurrency: 4
+  timeout: 5m
+  tests: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 50
+
+linters:
+  # Start from nothing and opt in explicitly, so a golangci-lint upgrade can't
+  # silently turn on new noisy linters.
+  default: none
+  enable:
+    # --- correctness (the non-negotiable core) ---
+    - govet            # copylocks, printf, lostcancel, loopclosure, struct tags
+    - staticcheck      # deprecations, simplifications, real bugs
+    - unused           # unused identifiers
+    - errcheck         # unchecked errors + (via settings) unchecked type assertions
+    - ineffassign      # assignments never read
+    # --- error-handling conventions (go-errors rule) ---
+    - errorlint        # errors.Is/As + %w wrapping (no err == sentinel)
+    - errname          # ErrFoo sentinels / FooError types
+    - nilerr           # `return nil` when err is non-nil
+    # --- naming / style the rules require (go-naming, go-code-style) ---
+    - revive           # MixedCaps, stutter, exported docs — light ruleset below
+    - misspell         # misspellings in identifiers/comments
+    - predeclared      # shadowing builtins (len, cap, error)
+    - unconvert        # redundant type conversions
+    # --- safety (go-safety, go-structs-interfaces) ---
+    - forcetypeassert  # bare x.(T) without comma-ok
+    # --- concurrency / context (go-concurrency, go-context) ---
+    - containedctx     # context.Context stored in a struct field
+    - bodyclose        # unclosed HTTP response bodies (resource leak)
+    # --- testing (go-tests rule) ---
+    - testifylint      # testify arg order, ErrorIs vs Equal, require/assert misuse
+    - thelper          # helpers missing t.Helper()
+    # --- meta ---
+    - nolintlint       # well-formed //nolint directives (see settings)
+
+  settings:
+    errcheck:
+      # The repo asserts comma-ok everywhere; flag bare assertions too.
+      check-type-assertions: true
+    nolintlint:
+      # The repo uses `//nolint:errcheck` (e.g. `defer tx.Rollback(ctx) //nolint:errcheck`)
+      # WITHOUT a trailing reason, and `//nolint:ineffassign,wastedassign // ...` WITH one.
+      # require-specific keeps the linter name mandatory (no bare //nolint);
+      # require-explanation stays FALSE so the existing reason-less errcheck directives pass.
+      # Tighten require-explanation to true only after backfilling reasons.
+      require-specific: true
+      require-explanation: false
+      allow-unused: false
+    revive:
+      # Keep revive gentle — rely on its sensible defaults rather than the full
+      # ruleset, which would flood the existing code. Add named rules deliberately.
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: error-return
+        - name: error-strings        # lowercase, no trailing punctuation (matches go-naming)
+        - name: error-naming
+        - name: errorf               # prefer fmt.Errorf over errors.New(fmt.Sprintf)
+        - name: if-return
+        - name: increment-decrement
+        - name: indent-error-flow    # early-return guard style (go-code-style)
+        - name: receiver-naming      # consistent 1-2 letter receiver per type
+        - name: time-naming
+        - name: unexported-return
+        - name: var-declaration
+
+  exclusions:
+    # golangci-lint v2 ships curated exclusion presets; "comments" + "common-false-positives"
+    # keep the baseline quiet without hand-maintaining regexes.
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - docs            # generated swagger (swag init -o docs)
+      - vendor$
+      - third_party$
+    rules:
+      # Tests may leave some errors unchecked and re-use literals freely.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - forcetypeassert
+      # Generated migration helpers / embedded SQL — don't lint generated code.
+      - path: (^|/)migrations/
+        linters:
+          - misspell
+
+# Formatters are a separate stage in v2 — they format, they don't "fail" style.
+# Enable only gofmt/gofumpt; the repo's convention is to run `make fmt` and accept
+# the formatter output verbatim (go-code-style rule).
+formatters:
+  enable:
+    - gofmt
+    - gofumpt
+  settings:
+    gofumpt:
+      extra-rules: true
+  exclusions:
+    generated: lax
+    paths:
+      - docs
+      - third_party$

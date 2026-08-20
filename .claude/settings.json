@@ -1,0 +1,18 @@
+{
+  "enabledPlugins": {
+    "sdd@sdd": true
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/gofmt-go.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,25 @@
+# Copy to .github/dependabot.yml (repo root). The Go module lives in /api,
+# so the gomod ecosystem points there; GitHub Actions are versioned at the repo root.
+version: 2
+updates:
+  # Go modules (module root is the api/ subdirectory)
+  - package-ecosystem: gomod
+    directory: /api
+    schedule:
+      interval: weekly
+      day: monday
+    labels: ["dependencies", "go"]
+    open-pull-requests-limit: 10
+    groups:
+      go-minor-patch:
+        update-types: [minor, patch]
+
+  # GitHub Actions (workflow files live at the repo root)
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "ci"]
+    groups:
+      actions:
+        patterns: ["*"]
