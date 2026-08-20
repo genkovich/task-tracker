@@ -25,12 +25,13 @@ Board — перший продуктовий модуль репо (`docs/archi
 
 ## Considered options
 
+Формально ще одна опція — **Backend API лише (API-only)**, без браузерного UI — існує як логічна протилежність, але **не є чесною альтернативою на момент цього рішення**: `ux-flows.md` (стадія, що передує `design`) вже спроєктувала повний екранний інвентар (SCR-01…SCR-06) і флоу для кожної user story, а spec §1 прямо вимагає, щоб аудиторія відкривала public link «зі своїх телефонів». Обидва артефакти вже написані до цього ADR і роблять API-only структурно неможливим без переписування upstream-роботи. Тому ця ADR не порівнює дві живі альтернативи — вона **формалізує** вибір target surface, який `ux-flows.md` вже зробив фактично, роблячи його явним архітектурним рішенням (frontmatter `target_surfaces`) для подальших стадій (`api`, `sequences`, `tasks`, `screens`).
+
 1. **Backend API + web SPA** — REST API (Go/chi) зберігає й віддає стан; React SPA — єдиний UI і для team member, і для viewer.
-2. **Backend API лише (API-only)** — team member і viewer працюють напряму з REST API (curl/Postman), без браузерного UI.
 
 ## Decision outcome
 
-**Chosen:** Option 1 — Backend API + web SPA. API-only суперечить і spec §1 («аудиторія відкриває public link зі своїх телефонів»), і всьому `ux-flows.md`, який вже спроєктував UI для кожної user story.
+**Chosen:** Option 1 — Backend API + web SPA. Це єдина опція, сумісна з уже написаним `ux-flows.md` і зі spec §1; рішення тут — формально зафіксувати `target_surfaces: [backend-service, web-frontend]` у `sad.md`, а не обирати між реальними альтернативами.
 
 ## Consequences
 

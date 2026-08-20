@@ -39,7 +39,7 @@ target_surfaces: [backend-service, web-frontend]  # filled in §4 — subset of:
 **Technical.**
 - Backend: Go 1.25.0, chi/v5 (routing), pgx/v5 + pgxpool (Postgres driver), golang-migrate/v4, google/uuid v7, prometheus/client_golang (`docs/architecture-map.md` §Stack).
 - Frontend: React 19.2.4 + React Router 7.12.0 **SPA mode** (`ssr: false` — repo-wide, not per-feature), Vite 7.1.7, Tailwind 4.1.13 + shadcn/ui + CVA.
-- Datastore: PostgreSQL 18 (`postgres:18-alpine`), accessed via pgx/v5 repo pattern; no other datastore in the repo today.
+- Datastore: PostgreSQL 18 (`postgres:18-alpine`) — board's only datastore, accessed via pgx/v5 repo pattern. Репо також має S3/local-filesystem object storage для аватарів user-модуля (`architecture-map.md` §Datastores) — board цим не користується.
 - Architecture convention: modular monolith, manual constructor-injection wiring (`api/cmd/api/main.go`); each module owns `domain/app/ports/infra` + a top-level `New(...)` (`CLAUDE.md` §Architecture, `.claude/rules/go-*.md`).
 
 **Organisational.**
@@ -116,10 +116,14 @@ api/internal/modules/board/
 web/src/
 ├── pages/board/            <editor view — composes features/board, features/public-link (SCR-01, SCR-04)>
 ├── pages/board-public/     <public read-only view by link token (SCR-05, SCR-06)>
-└── features/board/
-    ├── api/                <typed client calls + SSE subscription (ADR-0002)>
-    ├── model/               <drag-and-drop state, optimistic UI for create/edit/move/delete>
-    └── ui/                  <task card, column, quick-add (SCR-02), edit modal (SCR-03)>
+├── features/board/
+│   ├── api/                <typed client calls + SSE subscription (ADR-0002)>
+│   ├── model/               <drag-and-drop state, optimistic UI for create/edit/move/delete>
+│   └── ui/                  <task card, column, quick-add (SCR-02), edit modal (SCR-03)>
+└── features/public-link/
+    ├── api/                <issue/revoke link calls>
+    ├── model/               <link state — active / none>
+    └── ui/                  <SCR-04 панель: показати лінк, кнопки отримати/відкликати>
 ```
 
 **C4 Container (L2):**
@@ -218,6 +222,8 @@ sequenceDiagram
     end
 ```
 
+**Відкликання закриває вже відкриті SSE-з'єднання, не лише блокує нові.** Якщо viewer у момент відкликання вже тримає живе SSE-з'єднання (Flow 1 — API розсилає події всім живим клієнтам), team member, що відкликає лінк, мусить негайно розірвати саме це з'єднання з боку API — інакше AC-08/AC-11 порушуються для вже підключеного viewer'а, хоча нові спроби відкриття коректно відхиляються. API веде реєстр «токен → активні SSE-з'єднання» і закриває їх синхронно з операцією відкликання.
+
 ## 7. Deployment view
 
 **Це закриває spec §8 Open Question 1** («де хоститься board, щоб public link був стабільно доступний з телефонів глядачів у залі воркшопу»): board не отримує нової інфраструктури — вона розгортається в тому самому одноінстансному VPS-стеку, що вже є в репо (`deploy/docker-compose.prod.yml`, `deploy/Caddyfile`, `.github/workflows/deploy.yml`): один контейнер `api` (тепер несе й board-модуль), один `web` (SPA), один `postgres`, за Caddy з автоматичним TLS на публічному домені `${DOMAIN}`. Публічний домен з HTTPS — і є відповідь на «доступність з телефонів у залі»: жодна мережа воркшопу не потрібна, глядачі йдуть у звичайний інтернет.
@@ -289,6 +295,8 @@ Each top-3 goal from §1 expanded into a full scenario:
 | SSE-розсилка (ADR-0002) — in-process, не переживає горизонтальне масштабування `api` понад один інстанс | Medium | Прийнятний борг v1 при одноінстансному деплойменті (§7); знадобиться спільний pub/sub (напр. Redis) лише якщо з'явиться друга репліка | Backend |
 | Перетягування може не працювати коректно на сенсорних екранах — головна дія продукту недоступна більшості аудиторії воркшопу (idea-brief §10 risk) | Medium | Мобільна постава `ux-flows.md` (mobile-first, drag-and-drop через touch і мишу) — ручна перевірка на реальних мобільних пристроях перед `ship` | genkovich |
 | Open architectural decision: чи потрібна резервна копія стану board перед воркшопом (spec §8 OQ-2) | Open question | Resolve до дати воркшопу; spec §8 default-now — без окремого механізму бекапу для цієї фічі, рішення відкладено навмисно | genkovich |
+| Live push через SSE (ADR-0002) — поведінка понад те, що вимагає будь-який upstream-артефакт: spec AC-09 вимагає лише «актуальний стан при відкритті», без live-оновлення вже відкритої сторінки; жоден сценарій §10 не вимірює доставку push-подій | Medium | Додати acceptance criteria для push-доставки на `/sdd:clarify board` або при написанні `tasks`, щоб поведінка мала явну перевірку, а не лишалась задокументованою лише в ADR-0002 | genkovich |
+| Оцінка ефорту ~3 person-weeks (§2 Organisational) зроблена в idea-brief §11 **до** вибору live push (ADR-0002); idea-brief §14 прямо назвав живу трансляцію Effort L і невідповідною дедлайну воркшопу | Medium | Перепідтвердити бюджет/розмір фічі перед `tasks` — можливо, потрібне уточнення `.size` або дедлайну | genkovich |
 
 **Accepted debt (acceptable in v1, plan to fix later):**
 - Column — фіксований, незмінний набір (ADR-0004); додавання CRUD пізніше — адитивна зміна, не backfill.
