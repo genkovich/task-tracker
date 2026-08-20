@@ -264,18 +264,18 @@ sequenceDiagram
      🎯 N/A allowed for XS/S that reuses an existing deployment unit with no change.
      Deployment-diagram scaffold → templates/deployment.md. -->
 
-<Topology in 2–3 sentences. Where it runs, replicas, scaling thresholds.>
+**Це закриває spec §8 Open Question 1** («де хоститься board, щоб public link був стабільно доступний з телефонів глядачів у залі воркшопу»): board не отримує нової інфраструктури — вона розгортається в тому самому одноінстансному VPS-стеку, що вже є в репо (`deploy/docker-compose.prod.yml`, `deploy/Caddyfile`, `.github/workflows/deploy.yml`): один контейнер `api` (тепер несе й board-модуль), один `web` (SPA), один `postgres`, за Caddy з автоматичним TLS на публічному домені `${DOMAIN}`. Публічний домен з HTTPS — і є відповідь на «доступність з телефонів у залі»: жодна мережа воркшопу не потрібна, глядачі йдуть у звичайний інтернет.
+
+**Специфічна вимога ADR-0002 (SSE):** Caddy reverse-proxy для `/api/*` не повинен буферизувати SSE-потік (`encode` + типове буферизоване проксіювання зіпсують push-доставку) — для SSE-ендпоінта board потрібен `flush_interval -1` (негайний flush) у `reverse_proxy`-директиві `deploy/Caddyfile`; це конфігураційна зміна existing Caddyfile, не нова інфраструктура.
 
 **Monitoring:**
-- <Metrics — e.g. `<metric_name>`>
-- <Alerts — e.g. «worker lag > 10 min → page on-call»>
-- <Tracing — e.g. spans on the request boundary>
+- Метрики: наявний `/metrics` (Prometheus) розширюється board-специфічними лічильниками — кількість активних SSE-з'єднань, кількість відправлених broadcast-подій, латентність запису task (для перевірки NFR p95 ≤300ms).
+- Алерти: не вводяться нові окремо для board у v1 — використовується наявний Grafana-дашборд (`deploy/grafana/dashboards/`); нова панель для SSE-з'єднань — рекомендація для `implement`, не блокер design.
+- Tracing: не вводиться (репо не використовує розподілену трасировку сьогодні — поза скоупом цієї фічі).
 
 **Scaling thresholds:**
-- <e.g. comfortable in one table up to N rows/year>
-- <e.g. partition by quarter above N rows/year>
-
-<!-- For XS/S with no deployment change: <!-- N/A: reuses existing deployment unit, no infra change --> -->
+- Один інстанс `api` комфортно тримає ціль NFR ≥20 req/s (spec §6) і очікуваний масштаб — команда 3–7 людей + ~30 глядачів воркшопу одночасно (idea-brief §11 Reach).
+- Понад це (друга репліка `api`) SSE-розсилка (ADR-0002) перестає працювати коректно без спільного pub/sub — зафіксовано як прийнятний технічний борг v1 у §11, не поточна вимога.
 
 ## 8. Crosscutting concepts
 
