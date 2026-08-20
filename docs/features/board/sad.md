@@ -72,31 +72,34 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
      Trust boundary — the line past which you don't trust data without checking it.
      Never N/A — greenfield still draws the planned actors + external systems. -->
 
-<Business context in 2–3 sentences. What the system does for whom.>
+Board — рівно одна спільна канбан-дошка команди. team member редагує її напряму, без входу в систему; будь-хто, хто отримав public link від team member, відкриває board виключно на перегляд, теж без входу в систему.
 
-<!-- brownfield: <one-line scan summary> (or «N/A — greenfield repo» if no source existed) -->
+<!-- brownfield: `docs/architecture-map.md` (reflects cfa5e7f) — fresh full-stack scaffold, auth/user — це лише каркас автентифікації й профілю (Google OAuth + JWT), не продуктовий домен; board — перший продуктовий модуль і свідомо не використовує наявний auth (`architecture-map.md` §Constraints & known tech-debt). -->
 
 **External systems (in / out):**
 
 | Actor or system | Type | Interaction |
 |---|---|---|
-| <author role> | Person | <what they do> |
-| <external service> | System (internal/external) | <interaction> |
-| <identity provider> | System (external) | <provides auth tokens> |
+| team member | Person | Створює/редагує/переміщує/видаляє task; отримує/відкликає public link |
+| viewer | Person | Відкриває public link, бачить поточний стан board лише на перегляд |
+| External systems | — | **None** (deliberate) — board не викликає жодного зовнішнього сервісу (ні наявний Google OAuth, ні сповіщення, ні сторонні API); увесь стан централізований в одному Postgres |
 
-**C4 Context (L1):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. -->
+**C4 Context (L1):**
 
 ```mermaid
 C4Context
-    title <feature> — System Context
+    title board — System Context
 
-    Person(actor, "<Actor role>", "<intent>")
-    System(app, "<Our system>", "<one-sentence description>")
-    System_Ext(ext, "<External system>", "<one-sentence description>")
+    Person(member, "Team member", "редагує board напряму, без входу в систему")
+    Person(viewer, "Viewer", "відкриває public link, бачить board лише на перегляд")
 
-    Rel(actor, app, "<interaction>", "<protocol>")
-    Rel(app, ext, "<interaction>", "<protocol>")
+    System(board, "Board", "Одна спільна канбан-дошка: колонки, task, public link")
+
+    Rel(member, board, "Створює / редагує / переміщує / видаляє task; керує public link", "HTTPS")
+    Rel(viewer, board, "Відкриває board за public link", "HTTPS")
 ```
+
+Board показаний як один чорний ящик: team member взаємодіє з ним напряму (повний доступ до редагування), viewer — виключно через public link (лише перегляд). Зовнішніх систем немає — свідоме рішення: наявний Google OAuth-каркас репо (`architecture-map.md`) залишається невикористаним цією фічею, бо продукт explicitly не має акаунтів (spec §3 Non-goals).
 
 ## 4. Solution strategy
 
