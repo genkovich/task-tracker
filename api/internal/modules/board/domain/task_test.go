@@ -45,7 +45,6 @@ func TestNewTask_NonEmptyTitle_Succeeds(t *testing.T) {
 	assignee := "Alex"
 
 	got, err := domain.NewTask(columnID, "Write the report", &assignee)
-
 	if err != nil {
 		t.Fatalf("NewTask(non-empty title) unexpected error = %v", err)
 	}

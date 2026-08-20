@@ -8,7 +8,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -55,7 +54,7 @@ func TestLinkService_IssuePublicLink_AlreadyActive_RejectsSecondLink(t *testing.
 	got, err := svc.IssuePublicLink(context.Background(), boardID)
 
 	require.Nil(t, got, "IssuePublicLink() on an already-active board returned a link, want nil")
-	require.Truef(t, errors.Is(err, domain.ErrLinkAlreadyActive),
+	require.ErrorIsf(t, err, domain.ErrLinkAlreadyActive,
 		"IssuePublicLink() error = %v, want errors.Is(err, domain.ErrLinkAlreadyActive)", err)
 	require.Len(t, repo.linksByBoard, 1, "IssuePublicLink() on an already-active board wrote a second link row")
 	require.Equal(t, existing.Token, repo.linksByBoard[boardID].Token, "the pre-existing link's token was overwritten")

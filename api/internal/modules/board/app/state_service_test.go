@@ -13,7 +13,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -63,6 +62,6 @@ func TestStateService_GetPublicBoardState_UnknownToken_ReturnsErrLinkNotFound(t 
 	got, err := svc.GetPublicBoardState(context.Background(), "revoked-or-unknown-token")
 
 	require.Nil(t, got, "GetPublicBoardState(unknown token) returned a state, want nil")
-	require.Truef(t, errors.Is(err, domain.ErrLinkNotFound),
+	require.ErrorIsf(t, err, domain.ErrLinkNotFound,
 		"GetPublicBoardState(unknown token) error = %v, want errors.Is(err, domain.ErrLinkNotFound)", err)
 }

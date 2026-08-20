@@ -41,7 +41,7 @@ func NewHub() *Hub {
 // Register adds a new connection under token (empty string for the
 // team-editor connection) and returns its id — for a later Unregister — and
 // the receive-only channel that future Broadcast calls deliver events to.
-func (h *Hub) Register(token string) (connID, <-chan ports.Event) {
+func (h *Hub) Register(token string) (connID, <-chan ports.Event) { //nolint:revive // Subscribe below is the type-safe public API; Register/Unregister are the package-internal pair it composes
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
