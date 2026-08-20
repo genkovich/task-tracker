@@ -2,6 +2,7 @@ import { type RouteConfig, route, index, layout } from "@react-router/dev/routes
 
 export default [
   index("pages/board/ui/BoardPage.tsx"),
+  route("b/:token", "pages/board-public/ui/BoardPublicPage.tsx"),
   route("login", "pages/login/ui/LoginPage.tsx"),
   route("auth/callback", "pages/auth-callback/ui/AuthCallbackPage.tsx"),
   layout("app/layouts/ProtectedLayout.tsx", [
