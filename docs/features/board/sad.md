@@ -350,12 +350,17 @@ Each top-3 goal from §1 expanded into a full scenario:
 
 | Risk / debt | Severity | Mitigation | Owner |
 |---|---|---|---|
-| <e.g. Worker lag may reach hours during a downstream outage> | Medium | <alert >10 min, on-call playbook, retry backoff> | <DevOps> |
-| <e.g. No event-schema versioning in v1> | Medium | <ADR-NNNN planned for v2, tolerate unknown fields> | <Backend> |
-| Open architectural decision: <decision-headline> | Open question | Resolve before <stage trigger or YYYY-MM-DD>; <inline rationale from the Save-as-OQ> | <owner> |
+| Дедлайн воркшопу — тригер фічі — не має зафіксованої календарної дати в жодному upstream-артефакті (spec §2 Constraints, Organisational) | Medium | Підтвердити точну дату воркшопу до старту `tasks`/`implement`, щоб effort-бюджет (3 person-weeks, idea-brief §11) залишався реалістичним | genkovich (PM) |
+| Base editor URL board повністю відкритий — знання базового домену дає повне право редагування, бо акаунтів немає (spec §3 Non-goals, sad.md §8 Authorization row) | Medium | Свідомий, спекою зафіксований компроміс — не таємний за замовчуванням; security review (spec §6.1) явно перевірить, чи прийнятний цей ризик для продукту без акаунтів | Security Lead |
+| Наявний Google OAuth-каркас (`auth`/`user` модулі) лишається невикористаним board — напруга з product-домену, що починається без акаунтів (`architecture-map.md` §Constraints & known tech-debt, brownfield gotcha) | Low | Прийнятно для v1 — board свідомо не використовує auth (ADR-0001 context); переоцінити, якщо продукт колись додасть акаунти | Backend |
+| SSE-розсилка (ADR-0002) — in-process, не переживає горизонтальне масштабування `api` понад один інстанс | Medium | Прийнятний борг v1 при одноінстансному деплойменті (§7); знадобиться спільний pub/sub (напр. Redis) лише якщо з'явиться друга репліка | Backend |
+| Перетягування може не працювати коректно на сенсорних екранах — головна дія продукту недоступна більшості аудиторії воркшопу (idea-brief §10 risk) | Medium | Мобільна постава `ux-flows.md` (mobile-first, drag-and-drop через touch і мишу) — ручна перевірка на реальних мобільних пристроях перед `ship` | genkovich |
+| Open architectural decision: чи потрібна резервна копія стану board перед воркшопом (spec §8 OQ-2) | Open question | Resolve до дати воркшопу; spec §8 default-now — без окремого механізму бекапу для цієї фічі, рішення відкладено навмисно | genkovich |
 
 **Accepted debt (acceptable in v1, plan to fix later):**
-- <e.g. the entity is immutable / unversioned — OK for v1, may need audit versioning in v2>
+- Column — фіксований, незмінний набір (ADR-0004); додавання CRUD пізніше — адитивна зміна, не backfill.
+- SSE без горизонтального масштабування (рядок вище) — прийнятно, поки деплоймент лишається одноінстансним (§7).
+- Жодного event-schema versioning для SSE-подій у v1 — подія лише сигналізує «стан змінився» (тригер на refetch), без власного payload, що потребував би версіювання.
 
 ## 12. Glossary
 
