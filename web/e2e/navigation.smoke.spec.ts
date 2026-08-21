@@ -1,8 +1,19 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Navigation", () => {
-  test("home shows the bare Google login button", async ({ page }) => {
+  // routes.ts made BoardPage the index route — home is the board now, and
+  // the Google login button lives on /login (review root J).
+  test("home mounts the board page, not the login screen", async ({ page }) => {
     await page.goto("/");
+    // Whichever SCR-01 state the board settles in (loaded «Дошка команди» or
+    // the error block «Не вдалося завантажити дошку» when the API is down),
+    // the board wording is visible and the login button is gone from /.
+    await expect(page.getByText(/дошк/i).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: /sign in with google/i })).toHaveCount(0);
+  });
+
+  test("login page shows the bare Google login button", async ({ page }) => {
+    await page.goto("/login");
     await expect(page.getByRole("button", { name: /sign in with google/i })).toBeVisible();
   });
 
