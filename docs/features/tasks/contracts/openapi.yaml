@@ -1,0 +1,471 @@
+openapi: 3.1.0
+
+info:
+  title: Tasks Board API
+  version: 0.1.0
+  description: |
+    A shared kanban board for a small team (3–7 people): three fixed columns
+    (To Do → In Progress → Done), cards with a name and an optional free-text
+    assignee, drag-and-drop status changes, and a team-managed unpredictable
+    public link that lets people outside the team watch the board's live
+    state read-only, with no account of any kind. Editing is deliberately
+    unauthenticated — see the `security` note below.
+  contact:
+    name: Task Tracker
+    url: https://github.com/task-tracker
+
+tags:
+  - name: cards
+    description: Card CRUD, drag-to-move, and the editor's live-update stream.
+  - name: public-links
+    description: Generating and disabling the board's public read-only link.
+  - name: public
+    description: The unauthenticated public-view surface a link token grants access to.
+
+servers:
+  - url: https://api.example.com
+    description: Production
+  - url: http://localhost:8080
+    description: Local
+
+# Deviation from the repo's usual BearerAuth default: this feature has NO
+# authentication anywhere, by deliberate spec decision (spec.md §3 Non-goals,
+# §6.1) — editing the board requires no login at all, and the public-view
+# surface is gated only by possessing an unguessable link token (ADR-0003),
+# not by a bearer token. `security: []` at the root applies to every
+# operation; the BearerAuth scheme is kept declared below only because the
+# repo's platform defines it for other modules, not because this API uses it.
+security: []
+
+paths:
+  /api/v1/cards:
+    get:
+      summary: List every card on the board (the team-member editor view)
+      description: Returns every card, ordered by column then by creation time within a column (no manual reordering).
+      operationId: listCards
+      tags: [cards]
+      security: []
+      parameters:
+        - in: query
+          name: after
+          description: cursor — id of the last card seen; the page starts after it
+          schema: { type: string, format: uuid }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200, default: 200 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CardPage" }
+
+    post:
+      summary: Create a new card in the To Do column
+      description: A blank or whitespace-only name is rejected (AC-03); the assignee is free text and optional.
+      operationId: createCard
+      tags: [cards]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CardCreate" }
+            example:
+              name: "Write the workshop deck"
+              assignee: "Test User"
+      responses:
+        "201":
+          description: Created — the card lands in To Do
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Card" }
+              example:
+                id: "0199a000-0000-7000-8000-000000000101"
+                name: "Write the workshop deck"
+                assignee: "Test User"
+                column_status: "todo"
+                created_at: "2026-08-21T10:00:00Z"
+                updated_at: "2026-08-21T10:00:00Z"
+        "400":
+          description: Save blocked — the name is empty or whitespace-only (AC-03)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                code: "tasks.name_required"
+                message: "Card name is required."
+
+  /api/v1/cards/{id}:
+    patch:
+      summary: Edit a card's name and/or assignee (AC-13, AC-14)
+      description: Whole-card update — resend the current assignee to leave it unchanged; a blank/whitespace-only name is rejected.
+      operationId: updateCard
+      tags: [cards]
+      security: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CardUpdate" }
+            example:
+              name: "Write the workshop deck (v2)"
+              assignee: null
+      responses:
+        "200":
+          description: Updated — the change is visible to everyone who opens or refreshes
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Card" }
+        "400":
+          description: Save blocked — the name is empty or whitespace-only (AC-14)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                code: "tasks.name_required"
+                message: "Card name is required."
+        "404":
+          $ref: "#/components/responses/CardNotFound"
+
+    delete:
+      summary: Delete a card (AC-10)
+      description: Hard delete — permanently removes the card; a concurrent move on this same card that arrives afterward finds it gone (AC-15).
+      operationId: deleteCard
+      tags: [cards]
+      security: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: Deleted — the card is gone for everyone who opens or refreshes
+        "404":
+          $ref: "#/components/responses/CardNotFound"
+
+  /api/v1/cards/{id}/column:
+    patch:
+      summary: Move a card to another column (drag; AC-01, AC-07, AC-11)
+      description: Unconditional overwrite of the column — the last write the server processes wins, no version check, no rejection (ADR-0002).
+      operationId: moveCard
+      tags: [cards]
+      security: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CardMove" }
+            example:
+              column_status: "in_progress"
+      responses:
+        "200":
+          description: >-
+            Moved — the server unconditionally overwrites the column and
+            bumps `updated_at` (ADR-0002); two near-simultaneous moves on the
+            same card both return 200, and whichever the server processed
+            last is the column every viewer converges on (AC-07).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Card" }
+        "404":
+          description: >-
+            The card no longer exists. AC-15: this is the expected outcome
+            when a drag on a card races a delete of that same card and the
+            delete reaches the server first — the client treats this
+            specific 404 as a silent no-op, not a user-facing error.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                code: "tasks.card_not_found"
+                message: "Card not found."
+        "400":
+          description: The requested column isn't one of the three fixed columns
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                code: "tasks.invalid_column"
+                message: "column_status must be one of todo, in_progress, done."
+
+  /api/v1/cards/events:
+    get:
+      summary: Live stream of board changes, for the team-member editor view (ADR-0001)
+      description: >-
+        Server-Sent Events. Stays open for as long as the editor's page is;
+        pushes a `card.created` / `card.updated` / `card.moved` /
+        `card.deleted` / `link.generated` / `link.disabled` message each
+        time one happens (sad.md §6 "Flow: Drag a card", "Flow: Add a new
+        card", etc.). No request body, no query parameters.
+      operationId: subscribeCardEvents
+      tags: [cards]
+      security: []
+      responses:
+        "200":
+          description: >-
+            An open `text/event-stream` connection. Not exempted from the
+            repo's per-IP rate limiter on the initial connect, but IS
+            exempted from the shared 30s request timeout (sad.md §7, §8).
+          content:
+            text/event-stream:
+              schema: { type: string }
+
+  /api/v1/public-links:
+    post:
+      summary: Generate a new public link, replacing any currently active one (US-03, AC-09)
+      description: Always succeeds — if a link is already active, it is disabled first so there is never more than one active link.
+      operationId: generatePublicLink
+      tags: [public-links]
+      security: []
+      responses:
+        "201":
+          description: >-
+            Created — an unpredictable token that stays valid until
+            disabled (ADR-0003). If a link was already active, it is
+            disabled first (data-model.md service-layer invariant): there
+            is never more than one active link at a time.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicLink" }
+              example:
+                id: "0199a000-0000-7000-8000-000000000201"
+                token: "kQ9f2xW1pR7mZ4vN8sD3hJ6cL0aY5tB2"
+                disabled_at: null
+                created_at: "2026-08-21T10:05:00Z"
+
+  /api/v1/public-links/active:
+    get:
+      summary: Get the currently active public link, if any (for the editor UI to render link status)
+      description: 'Returns `{link: null}` when no link is active — never a 404, since "no active link" is a normal board state.'
+      operationId: getActivePublicLink
+      tags: [public-links]
+      security: []
+      responses:
+        "200":
+          description: The active link, or null if none is active
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [link]
+                properties:
+                  link:
+                    oneOf:
+                      - $ref: "#/components/schemas/PublicLink"
+                      - type: "null"
+
+  /api/v1/public-links/{id}/disable:
+    post:
+      summary: Disable the public link (US-05, AC-04)
+      description: Sets disabled_at once and never clears it — re-enabling an old link is not a supported operation; generate a new one instead.
+      operationId: disablePublicLink
+      tags: [public-links]
+      security: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: >-
+            Disabled — idempotent (disabling an already-disabled link
+            returns 200 unchanged, not an error). Broadcast immediately
+            (ADR-0001), so an open public viewer transitions to not-found
+            within the same push cycle (AC-12).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicLink" }
+        "404":
+          $ref: "#/components/responses/LinkNotFound"
+
+  /api/v1/public/boards/{token}:
+    get:
+      summary: Resolve a public link and read the board read-only (US-04, AC-05, AC-06, AC-08)
+      description: The token is the sole access control — no session, no cookie, no header. A disabled or unknown token is indistinguishable from any other bad address.
+      operationId: getPublicBoard
+      tags: [public]
+      security: []
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: >-
+            The board's current state, read-only — never a stale snapshot
+            (AC-08). The response carries no edit affordance of any kind
+            (AC-06); that is a UI rendering property, not a field this
+            schema needs to express.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CardPage" }
+        "404":
+          description: >-
+            The link is disabled or was never valid. Deliberately
+            byte-for-byte identical to the server's generic not-found for
+            any unmatched route (AC-05) — this operation's error code is
+            the shared `common.not_found`, never a tasks-specific code that
+            would confirm a board once existed at this address.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                code: "common.not_found"
+                message: "Not found."
+
+  /api/v1/public/boards/{token}/events:
+    get:
+      summary: Live stream of board changes for a viewer holding an active public link (ADR-0001)
+      description: >-
+        Server-Sent Events, scoped to one link token. Pushes the same board
+        events as the editor stream while the link stays active; pushes a
+        `link.disabled` message (or simply closes) the moment the link is
+        disabled, which the viewer's page turns into an automatic
+        transition to not-found (AC-12) without a manual refresh.
+      operationId: subscribePublicBoardEvents
+      tags: [public]
+      security: []
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: An open `text/event-stream` connection, scoped to this link.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "404":
+          description: The link is disabled or was never valid — same generic not-found as the read endpoint above.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                code: "common.not_found"
+                message: "Not found."
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Declared for parity with the repo's platform (used by other
+        modules, e.g. `user`/`auth`) — no operation in this contract
+        references it; every operation is `security: []`.
+
+  responses:
+    CardNotFound:
+      description: Error — card does not exist
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            code: "tasks.card_not_found"
+            message: "Card not found."
+    LinkNotFound:
+      description: Error — public link does not exist
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            code: "tasks.link_not_found"
+            message: "Public link not found."
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          pattern: "^[a-z_]+\\.[a-z_]+$"
+          example: "tasks.name_required"
+        message: { type: string }
+        details:
+          type: object
+          description: optional structured context (unused by this feature today)
+
+    Card:
+      type: object
+      required: [id, name, column_status, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 200 }
+        assignee: { type: [string, "null"], maxLength: 100 }
+        column_status:
+          type: string
+          enum: [todo, in_progress, done]
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    CardCreate:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, maxLength: 200 }
+        assignee: { type: [string, "null"], maxLength: 100 }
+
+    CardUpdate:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, maxLength: 200 }
+        assignee: { type: [string, "null"], maxLength: 100 }
+
+    CardMove:
+      type: object
+      required: [column_status]
+      additionalProperties: false
+      properties:
+        column_status:
+          type: string
+          enum: [todo, in_progress, done]
+
+    CardPage:
+      type: object
+      required: [items, has_next, has_prev]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Card" }
+        has_next: { type: boolean }
+        has_prev: { type: boolean }
+        next_cursor: { type: [string, "null"], format: uuid }
+
+    PublicLink:
+      type: object
+      required: [id, disabled_at, created_at]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        token:
+          type: string
+          description: >-
+            Present only on the response to POST /public-links (the moment
+            of generation, when the team member needs to copy it). Other
+            operations that return a PublicLink (e.g. disable, get-active)
+            omit it — the token is never re-displayed after the initial
+            generation to keep its exposure minimal.
+        disabled_at: { type: [string, "null"], format: date-time }
+        created_at: { type: string, format: date-time }
