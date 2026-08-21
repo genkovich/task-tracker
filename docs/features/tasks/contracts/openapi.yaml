@@ -1,0 +1,417 @@
+openapi: 3.1.0
+
+info:
+  title: Tasks API (delta)
+  version: 0.1.0
+  description: |
+    Дельта до `docs/features/board/contracts/openapi.yaml` (+ `boards` дельта) —
+    лише нові та змінені шляхи фічі tasks (багаті задачі: опис, пріоритет,
+    дедлайн, коментарі). Все інше — дошки, колонки, drag-and-drop, публічний
+    лінк, SSE — без змін.
+
+    Нові шляхи:
+    - `GET /api/v1/tasks/{taskId}` — деталі задачі + її коментарі (редактор)
+    - `GET|POST /api/v1/tasks/{taskId}/comments` — стрічка коментарів і додавання
+    - `DELETE /api/v1/tasks/{taskId}/comments/{commentId}` — видалення коментаря
+    - `GET /api/v1/public/{token}/tasks/{taskId}` — ті самі деталі глядачеві,
+      read-only; живе у високотрафічному тирі (300/хв), як і публічний стан дошки
+
+    Змінені шляхи:
+    - `POST /api/v1/tasks` — `TaskCreate` приймає description/priority/due_date
+    - `PATCH /api/v1/tasks/{taskId}` — `TaskUpdate` приймає їх само; семантика
+      незмінна (title обовʼязковий, як зараз — це не merge-patch)
+
+    Змінені схеми:
+    - `Task` тепер несе description/priority/due_date — це повний рядок задачі,
+      який віддають create/edit і деталі.
+    - Задачі всередині `BoardState`/`PublicBoardState` більше не `Task`, а нова
+      `TaskCard`: **без description** (стан дошки не тягне описи, spec §6), зате
+      з `has_description` і `comment_count` для маркерів на картці.
+
+    Будь-яка зміна деталей задачі чи коментаря транслюється існуючою подією
+    `board.state_changed` дошки цієї задачі (TSK-14) — нових типів подій немає.
+
+security: []
+
+paths:
+  /api/v1/tasks:
+    post:
+      summary: Створити task (змінений — TaskCreate приймає деталі)
+      operationId: createTask
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskCreate" }
+            example:
+              board_id: "019a0000-0000-7000-8000-000000000101"
+              title: "Підняти стенд до демо"
+              description: "Розгорнути на VPS, перевірити TLS"
+              priority: "high"
+              due_date: "2026-09-01"
+      responses:
+        "201":
+          description: Created — повний рядок задачі
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400":
+          description: >-
+            Невалідне тіло (`validation.invalid_body`), `board_id` не UUID
+            (`validation.invalid_board_id`) або `due_date` не у форматі
+            `YYYY-MM-DD` (`validation.invalid_due_date`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          $ref: "#/components/responses/BoardNotFound"
+        "422":
+          $ref: "#/components/responses/TaskUnprocessable"
+        "429":
+          description: Rate limit створення task — як у base-контракті
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/tasks/{taskId}:
+    get:
+      summary: Деталі задачі з коментарями (TSK-01/TSK-08, редактор)
+      operationId: getTask
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskDetail" }
+        "400":
+          description: "`taskId` не є UUID (`validation.invalid_task_id`)"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          $ref: "#/components/responses/TaskNotFound"
+    patch:
+      summary: Редагувати task (змінений — TaskUpdate приймає деталі)
+      description: >-
+        Семантика без змін проти base-контракту: це не merge-patch, `title`
+        обовʼязковий, а поля, яких немає в тілі, беруть значення нуля свого типу
+        (`description: ""`, `priority: "medium"`, `due_date: null`) — так само,
+        як `assignee` поводився й до цієї фічі.
+      operationId: editTask
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskUpdate" }
+            example:
+              title: "Підняти стенд до демо"
+              description: "Розгорнути на VPS, перевірити TLS"
+              priority: "high"
+              due_date: "2026-09-01"
+              assignee: "Ada"
+      responses:
+        "200":
+          description: OK — повний рядок задачі після змін
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400":
+          description: >-
+            Невалідне тіло (`validation.invalid_body`), `taskId` не UUID
+            (`validation.invalid_task_id`) або `due_date` не у форматі
+            `YYYY-MM-DD` (`validation.invalid_due_date`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          $ref: "#/components/responses/TaskNotFound"
+        "422":
+          $ref: "#/components/responses/TaskUnprocessable"
+
+  /api/v1/tasks/{taskId}/comments:
+    get:
+      summary: Стрічка коментарів задачі (TSK-08)
+      description: Найстаріші зверху — `ORDER BY created_at`.
+      operationId: listTaskComments
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Comment" }
+        "400":
+          description: "`taskId` не є UUID (`validation.invalid_task_id`)"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          $ref: "#/components/responses/TaskNotFound"
+    post:
+      summary: Додати коментар (TSK-08)
+      operationId: addTaskComment
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CommentCreate" }
+            example: { author: "Ada Lovelace", body: "Стенд піднято, лишився TLS" }
+      responses:
+        "201":
+          description: Created — створений коментар
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Comment" }
+        "400":
+          description: Невалідне тіло або `taskId` не UUID
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          $ref: "#/components/responses/TaskNotFound"
+        "422":
+          description: >-
+            Порожній автор (`comment.author_required`), автор понад 200 символів
+            (`comment.author_too_long`), порожній текст (`comment.body_required`)
+            або текст понад 2000 символів (`comment.body_too_long`) — TSK-09
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error:
+                  code: "comment.body_required"
+                  message: "comment body is required"
+
+  /api/v1/tasks/{taskId}/comments/{commentId}:
+    delete:
+      summary: Видалити коментар (TSK-10, редактор)
+      description: >-
+        Редакторський маршрут: під публічним токеном такого шляху не існує
+        взагалі (глядач read-only, TSK-12).
+      operationId: deleteTaskComment
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - name: commentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204": { description: Видалено }
+        "400":
+          description: "`taskId`/`commentId` не є UUID"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: Коментаря не знайдено (`comment.not_found`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/public/{token}/tasks/{taskId}:
+    get:
+      summary: Деталі задачі глядачеві (TSK-12), read-only
+      description: >-
+        Той самий `TaskDetail`, що й редакторський GET. Задача мусить належати
+        дошці цього токена — інакше відповідь така сама, як на недійсний лінк
+        (TSK-13), без жодного натяку, що задача десь існує. Живе у
+        високотрафічному тирі 300 запитів/хв разом із публічним станом дошки;
+        `Cache-Control: no-store`, `X-Robots-Tag: noindex, nofollow`.
+      operationId: getPublicTask
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskDetail" }
+        "400":
+          description: "`taskId` не є UUID (`validation.invalid_task_id`)"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: >-
+            Токен недійсний/відкликаний АБО задача належить іншій дошці —
+            обидва випадки віддають `board.link_invalid` (TSK-13)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error:
+                  code: "board.link_invalid"
+                  message: "this link is no longer available"
+        "429":
+          description: Ліміт високотрафічного тиру (300/хв на IP)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+components:
+  parameters:
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    BoardNotFound:
+      description: Дошку не знайдено (`board.not_found`)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TaskNotFound:
+      description: Задачу не знайдено (`task.not_found`)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TaskUnprocessable:
+      description: >-
+        Помилки полів задачі: `task.title_required`, `task.title_too_long`,
+        `task.assignee_too_long`, `task.description_too_long` (TSK-02),
+        `task.priority_invalid` (TSK-04)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error:
+              code: "task.priority_invalid"
+              message: "task priority must be one of low, medium, high"
+
+  schemas:
+    Error:
+      # Той самий unified error envelope, що в base-контракті.
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, example: "task.not_found" }
+            message: { type: string }
+
+    Priority:
+      type: string
+      enum: [low, medium, high]
+      default: medium
+
+    # Повний рядок задачі: віддають create/edit і деталі.
+    Task:
+      type: object
+      required: [id, column_id, title, description, priority, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        column_id: { type: string, format: uuid }
+        title: { type: string, maxLength: 200 }
+        assignee: { type: [string, "null"], maxLength: 200 }
+        description: { type: string, maxLength: 4000 }
+        priority: { $ref: "#/components/schemas/Priority" }
+        due_date: { type: [string, "null"], format: date }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    # Задача всередині стану дошки: без description (spec §6), зате з двома
+    # похідними полями для маркерів на картці.
+    TaskCard:
+      type: object
+      required:
+        [id, column_id, title, priority, has_description, comment_count, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        column_id: { type: string, format: uuid }
+        title: { type: string, maxLength: 200 }
+        assignee: { type: [string, "null"], maxLength: 200 }
+        priority: { $ref: "#/components/schemas/Priority" }
+        due_date: { type: [string, "null"], format: date }
+        has_description: { type: boolean }
+        comment_count: { type: integer, minimum: 0 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    TaskDetail:
+      type: object
+      required: [task, comments]
+      additionalProperties: false
+      properties:
+        task: { $ref: "#/components/schemas/Task" }
+        comments:
+          type: array
+          items: { $ref: "#/components/schemas/Comment" }
+
+    Comment:
+      type: object
+      required: [id, task_id, author, body, created_at]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        task_id: { type: string, format: uuid }
+        author: { type: string, minLength: 1, maxLength: 200 }
+        body: { type: string, minLength: 1, maxLength: 2000 }
+        created_at: { type: string, format: date-time }
+
+    CommentCreate:
+      type: object
+      required: [author, body]
+      additionalProperties: false
+      properties:
+        author: { type: string, minLength: 1, maxLength: 200 }
+        body: { type: string, minLength: 1, maxLength: 2000 }
+
+    TaskCreate:
+      type: object
+      required: [board_id, title]
+      additionalProperties: false
+      properties:
+        board_id: { type: string, format: uuid }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        assignee: { type: [string, "null"], maxLength: 200 }
+        description: { type: string, maxLength: 4000 }
+        priority: { $ref: "#/components/schemas/Priority" }
+        due_date: { type: [string, "null"], format: date }
+
+    TaskUpdate:
+      type: object
+      required: [title]
+      additionalProperties: false
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        assignee: { type: [string, "null"], maxLength: 200 }
+        description: { type: string, maxLength: 4000 }
+        priority: { $ref: "#/components/schemas/Priority" }
+        due_date: { type: [string, "null"], format: date }
+
+    # Column / BoardState / PublicBoardState — форма з base-контракту, у якій
+    # tasks тепер TaskCard; продубльовано для самодостатності файлу.
+    Column:
+      type: object
+      required: [id, name, position, tasks]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 100 }
+        position: { type: integer, minimum: 0 }
+        tasks:
+          type: array
+          items: { $ref: "#/components/schemas/TaskCard" }
