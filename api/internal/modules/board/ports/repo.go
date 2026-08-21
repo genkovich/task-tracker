@@ -47,15 +47,18 @@ type Repository interface {
 	// task.ColumnID does not exist.
 	InsertTask(ctx context.Context, task *domain.Task) error
 
-	// UpdateTask persists edits to an existing task's title/assignee.
+	// UpdateTask persists edits to an existing task's title/assignee and
+	// fills task with the stored row's remaining fields (column_id,
+	// created_at, updated_at), so the caller holds a complete Task.
 	// Returns domain.ErrTaskNotFound if no such task exists.
 	UpdateTask(ctx context.Context, task *domain.Task) error
 
-	// MoveTask updates a task's column_id — a plain single-row UPDATE, no
-	// version/lock column (last-write-wins by design, data-model.md).
-	// Returns domain.ErrColumnNotFound if columnID does not exist (AC-05),
+	// MoveTask updates a task's column_id and updated_at — a single-row
+	// UPDATE, no version/lock column (last-write-wins by design,
+	// data-model.md) — and returns the complete moved task. Returns
+	// domain.ErrColumnNotFound if columnID does not exist (AC-05),
 	// domain.ErrTaskNotFound if taskID does not exist.
-	MoveTask(ctx context.Context, taskID, columnID uuid.UUID) error
+	MoveTask(ctx context.Context, taskID, columnID uuid.UUID) (*domain.Task, error)
 
 	// DeleteTask hard-deletes a task row (AC-06). Returns
 	// domain.ErrTaskNotFound if no such task exists.

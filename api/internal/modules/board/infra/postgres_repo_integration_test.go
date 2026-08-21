@@ -112,12 +112,20 @@ func TestPostgresRepository_MoveTask_UpdatesColumnID(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, f.repo.InsertTask(ctx, task))
 
-	err = f.repo.MoveTask(ctx, task.ID, seedColumnInProgID)
+	moved, err := f.repo.MoveTask(ctx, task.ID, seedColumnInProgID)
 	require.NoError(t, err)
 
 	gotColumnID, found := taskColumnID(t, f, task.ID)
 	require.True(t, found)
 	require.Equal(t, seedColumnInProgID, gotColumnID, "MoveTask should update column_id to the new column (AC-04)")
+
+	// Root G pin: the returned row is complete and updated_at moved forward.
+	require.NotNil(t, moved)
+	require.Equal(t, task.ID, moved.ID)
+	require.Equal(t, seedColumnInProgID, moved.ColumnID)
+	require.Equal(t, "Move me", moved.Title)
+	require.False(t, moved.CreatedAt.IsZero())
+	require.False(t, moved.UpdatedAt.Before(task.UpdatedAt), "MoveTask must refresh updated_at")
 }
 
 // AC-05 (US-03) domain invariant: moving a task to a non-existent column_id
@@ -132,7 +140,7 @@ func TestPostgresRepository_MoveTask_NonexistentColumn_ReturnsErrColumnNotFound(
 	require.NoError(t, f.repo.InsertTask(ctx, task))
 
 	bogusColumnID := uuid.Must(uuid.NewV7())
-	err = f.repo.MoveTask(ctx, task.ID, bogusColumnID)
+	_, err = f.repo.MoveTask(ctx, task.ID, bogusColumnID)
 
 	require.Error(t, err)
 	require.Truef(t, errors.Is(err, domain.ErrColumnNotFound),

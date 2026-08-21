@@ -145,14 +145,16 @@ func (r *PostgresRepository) InsertTask(ctx context.Context, task *domain.Task) 
 	return nil
 }
 
-// UpdateTask persists edits to an existing task's title/assignee.
+// UpdateTask persists edits to an existing task's title/assignee and fills
+// task with the row's remaining columns, so callers hand back a complete
+// Task (contracts/openapi.yaml Task requires column_id/created_at too).
 func (r *PostgresRepository) UpdateTask(ctx context.Context, task *domain.Task) error {
 	err := r.db.QueryRow(ctx,
 		`UPDATE tasks SET title = $1, assignee = $2, updated_at = now()
 		 WHERE id = $3
-		 RETURNING updated_at`,
+		 RETURNING column_id, created_at, updated_at`,
 		task.Title, task.Assignee, task.ID,
-	).Scan(&task.UpdatedAt)
+	).Scan(&task.ColumnID, &task.CreatedAt, &task.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ErrTaskNotFound
@@ -162,22 +164,27 @@ func (r *PostgresRepository) UpdateTask(ctx context.Context, task *domain.Task) 
 	return nil
 }
 
-// MoveTask updates a task's column_id — a plain single-row UPDATE, no
-// version/lock column (last-write-wins by design, data-model.md).
-func (r *PostgresRepository) MoveTask(ctx context.Context, taskID, columnID uuid.UUID) error {
-	result, err := r.db.Exec(ctx,
-		`UPDATE tasks SET column_id = $1 WHERE id = $2`, columnID, taskID,
-	)
+// MoveTask updates a task's column_id and updated_at — a single-row UPDATE,
+// no version/lock column (last-write-wins by design, data-model.md) — and
+// returns the complete moved row.
+func (r *PostgresRepository) MoveTask(ctx context.Context, taskID, columnID uuid.UUID) (*domain.Task, error) {
+	task := domain.Task{ID: taskID}
+	err := r.db.QueryRow(ctx,
+		`UPDATE tasks SET column_id = $1, updated_at = now()
+		 WHERE id = $2
+		 RETURNING column_id, title, assignee, created_at, updated_at`,
+		columnID, taskID,
+	).Scan(&task.ColumnID, &task.Title, &task.Assignee, &task.CreatedAt, &task.UpdatedAt)
 	if err != nil {
-		if database.IsPgForeignKeyViolation(err) {
-			return domain.ErrColumnNotFound
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrTaskNotFound
 		}
-		return fmt.Errorf("move task: %w", err)
+		if database.IsPgForeignKeyViolation(err) {
+			return nil, domain.ErrColumnNotFound
+		}
+		return nil, fmt.Errorf("move task: %w", err)
 	}
-	if result.RowsAffected() == 0 {
-		return domain.ErrTaskNotFound
-	}
-	return nil
+	return &task, nil
 }
 
 // DeleteTask hard-deletes a task row (AC-06).

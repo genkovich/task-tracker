@@ -113,11 +113,13 @@ func TestConcurrentMoveTask_ConvergesOnSingleLastWrittenColumn(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		errCh <- f.taskSvc.MoveTask(ctx, task.ID, t12SeedColumnInProgID)
+		_, err := f.taskSvc.MoveTask(ctx, task.ID, t12SeedColumnInProgID)
+		errCh <- err
 	}()
 	go func() {
 		defer wg.Done()
-		errCh <- f.taskSvc.MoveTask(ctx, task.ID, t12SeedColumnDoneID)
+		_, err := f.taskSvc.MoveTask(ctx, task.ID, t12SeedColumnDoneID)
+		errCh <- err
 	}()
 	wg.Wait()
 	close(errCh)

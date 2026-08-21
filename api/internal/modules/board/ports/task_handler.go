@@ -25,7 +25,7 @@ const taskCreateRateLimit = 30
 type TaskAppService interface {
 	CreateTask(ctx context.Context, title string, assignee *string) (*domain.Task, error)
 	EditTask(ctx context.Context, taskID uuid.UUID, title string, assignee *string) (*domain.Task, error)
-	MoveTask(ctx context.Context, taskID, columnID uuid.UUID) error
+	MoveTask(ctx context.Context, taskID, columnID uuid.UUID) (*domain.Task, error)
 	DeleteTask(ctx context.Context, taskID uuid.UUID) error
 }
 
@@ -173,16 +173,13 @@ func (h *TaskHandler) handleMoveTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.taskService.MoveTask(r.Context(), taskID, columnID); err != nil {
+	task, err := h.taskService.MoveTask(r.Context(), taskID, columnID)
+	if err != nil {
 		httputil.WriteError(w, mapTaskError(err))
 		return
 	}
 
-	// TaskAppService.MoveTask (T5) reports success/failure only — it does not
-	// return the moved task, so title/assignee/timestamps aren't available
-	// here to echo back. id/column_id are known-good (the move succeeded
-	// against exactly this pair).
-	httputil.WriteJSON(w, TaskResponse{ID: taskID.String(), ColumnID: columnID.String()}, http.StatusOK)
+	httputil.WriteJSON(w, toTaskResponse(task), http.StatusOK)
 }
 
 func toTaskResponse(task *domain.Task) TaskResponse {

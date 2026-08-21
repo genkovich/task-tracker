@@ -56,7 +56,9 @@ func (s *TaskService) CreateTask(ctx context.Context, title string, assignee *st
 	return task, nil
 }
 
-// EditTask updates an existing task's title and assignee (AC-03). On
+// EditTask updates an existing task's title and assignee (AC-03) and
+// returns the complete updated task — the repository fills the remaining
+// fields (column_id, created_at, updated_at) from the stored row. On
 // success it broadcasts board.state_changed exactly once.
 func (s *TaskService) EditTask(ctx context.Context, taskID uuid.UUID, title string, assignee *string) (*domain.Task, error) {
 	task := &domain.Task{ID: taskID, Assignee: assignee}
@@ -72,16 +74,18 @@ func (s *TaskService) EditTask(ctx context.Context, taskID uuid.UUID, title stri
 	return task, nil
 }
 
-// MoveTask moves a task to columnID (AC-04). A move to a column that does
-// not exist is rejected, leaving the task in its previous column, as if the
-// drop never happened (AC-05), and does not broadcast.
-func (s *TaskService) MoveTask(ctx context.Context, taskID, columnID uuid.UUID) error {
-	if err := s.repo.MoveTask(ctx, taskID, columnID); err != nil {
-		return fmt.Errorf("move task: %w", err)
+// MoveTask moves a task to columnID (AC-04) and returns the complete moved
+// task. A move to a column that does not exist is rejected, leaving the
+// task in its previous column, as if the drop never happened (AC-05), and
+// does not broadcast.
+func (s *TaskService) MoveTask(ctx context.Context, taskID, columnID uuid.UUID) (*domain.Task, error) {
+	task, err := s.repo.MoveTask(ctx, taskID, columnID)
+	if err != nil {
+		return nil, fmt.Errorf("move task: %w", err)
 	}
 
 	s.broadcast()
-	return nil
+	return task, nil
 }
 
 // DeleteTask hard-deletes a task (AC-06). On success it broadcasts

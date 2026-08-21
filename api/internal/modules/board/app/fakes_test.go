@@ -54,8 +54,8 @@ func (r *fakeRepo) UpdateTask(context.Context, *domain.Task) error {
 	return errors.New("fakeRepo: UpdateTask not implemented")
 }
 
-func (r *fakeRepo) MoveTask(context.Context, uuid.UUID, uuid.UUID) error {
-	return errors.New("fakeRepo: MoveTask not implemented")
+func (r *fakeRepo) MoveTask(context.Context, uuid.UUID, uuid.UUID) (*domain.Task, error) {
+	return nil, errors.New("fakeRepo: MoveTask not implemented")
 }
 
 func (r *fakeRepo) DeleteTask(context.Context, uuid.UUID) error {

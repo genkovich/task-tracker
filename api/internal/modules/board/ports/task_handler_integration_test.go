@@ -195,6 +195,11 @@ func TestTaskHandler_EditTask_HappyPath(t *testing.T) {
 	require.Equal(t, "Updated title", updated.Title)
 	require.NotNil(t, updated.Assignee)
 	require.Equal(t, "Grace", *updated.Assignee)
+	// Root G pin: the edit response is a complete Task (openapi.yaml
+	// requires column_id/created_at), not just the edited fields.
+	require.Equal(t, task.ColumnID, updated.ColumnID, "PATCH response must carry the task's real column_id")
+	require.Equal(t, task.CreatedAt, updated.CreatedAt, "PATCH response must carry the task's real created_at")
+	require.NotEmpty(t, updated.UpdatedAt)
 }
 
 // AC-03/AC-02 edge: editing an unknown task returns 404 task.not_found.
@@ -280,6 +285,11 @@ func TestTaskHandler_MoveTask_HappyPath(t *testing.T) {
 	var moved t7TaskWire
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&moved))
 	require.Equal(t, targetColumnID.String(), moved.ColumnID, "AC-04: task must be recorded in the new column")
+	// Root G pin: the move response is a complete Task, not an id/column stub.
+	require.Equal(t, task.ID, moved.ID)
+	require.Equal(t, "Move me", moved.Title, "move response must carry the task's title")
+	require.Equal(t, task.CreatedAt, moved.CreatedAt, "move response must carry the task's real created_at")
+	require.NotEmpty(t, moved.UpdatedAt)
 }
 
 // TestTaskHandler_MoveTask_UnknownColumn covers AC-05: moving to a column
@@ -296,6 +306,20 @@ func TestTaskHandler_MoveTask_UnknownColumn(t *testing.T) {
 	var body t7ErrorResponse
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 	require.Equal(t, "board.column_not_found", body.Error.Code)
+
+	// AC-05: the rejected move leaves the task in its source column, as if
+	// the drop never happened.
+	state, err := f.repo.GetBoardState(context.Background(), t7TaskHandlerSeedBoardID)
+	require.NoError(t, err)
+	var foundColumnID string
+	for _, col := range state.Columns {
+		for _, tk := range col.Tasks {
+			if tk.ID.String() == task.ID {
+				foundColumnID = col.ID.String()
+			}
+		}
+	}
+	require.Equal(t, task.ColumnID, foundColumnID, "AC-05: task must stay in its source column after a rejected move")
 }
 
 // AC-04/AC-05 edge: moving an unknown task returns 404 task.not_found.
