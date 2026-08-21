@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ var (
 	ErrCardFieldTooLong = errors.New("card field exceeds its length limit")
 	ErrLinkNotFound     = errors.New("public link not found")
 	ErrLinkDisabled     = errors.New("public link is disabled")
+	ErrInvalidColumn    = errors.New("column_status must be one of the three fixed columns")
 )
 
 // Card is a unit of work on the board — one name, an optional free-text
@@ -76,4 +78,21 @@ type PublicLink struct {
 // Active reports whether this link is still valid for public access.
 func (l PublicLink) Active() bool {
 	return l.DisabledAt == nil
+}
+
+type CardRepository interface {
+	Create(ctx context.Context, card *Card) error
+	GetByID(ctx context.Context, id uuid.UUID) (*Card, error)
+	List(ctx context.Context) ([]Card, error)
+	Update(ctx context.Context, card *Card) error
+	Move(ctx context.Context, id uuid.UUID, columnStatus string) (*Card, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+}
+
+type PublicLinkRepository interface {
+	Generate(ctx context.Context, token string) (*PublicLink, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*PublicLink, error)
+	GetActive(ctx context.Context) (*PublicLink, error)
+	ResolveByToken(ctx context.Context, token string) (*PublicLink, error)
+	Disable(ctx context.Context, id uuid.UUID) error
 }
