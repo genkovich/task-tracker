@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
+import { useBoardEvents } from "@/features/board/api/useBoardEvents";
 import BoardPage from "./BoardPage";
 
 // This task (T18) owns only web/src/pages/board/ and web/src/routes.ts, and per
@@ -28,6 +29,11 @@ vi.mock("@/features/board/api/boardApi", () => ({
 // it out so BoardPage doesn't need a live EventSource in jsdom.
 vi.mock("@/features/board/api/useBoardEvents", () => ({
   useBoardEvents: vi.fn(),
+}));
+
+const mockShowApiError = vi.fn();
+vi.mock("@/shared/lib/showApiError", () => ({
+  showApiError: (...args: unknown[]) => mockShowApiError(...args),
 }));
 
 vi.mock("@/features/public-link/api/publicLinkApi", () => ({
@@ -120,6 +126,38 @@ describe("BoardPage — loading and error states (SCR-01)", () => {
     expect(
       screen.queryByText(/не вдалося завантажити дошку|couldn't load board/i),
     ).not.toBeInTheDocument();
+  });
+});
+
+// Re-review 2026-08-21 re2 #2: a failed refetch (SSE-triggered or after an
+// edit) must NOT tear the already-rendered board down to the error screen —
+// the stale board stays visible and the failure surfaces as a toast. The
+// full error screen is reserved for the initial load only.
+describe("BoardPage — refetch failure keeps the stale board (re2 #2)", () => {
+  it("keeps the rendered board and surfaces a toast when a background refetch fails", async () => {
+    mockGetBoard.mockResolvedValueOnce(board);
+    mockGetBoard.mockRejectedValueOnce(new Error("network down"));
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("To do")).toBeInTheDocument();
+    });
+
+    // Simulate an SSE board event triggering the page's refetch.
+    const onBoardEvent = vi.mocked(useBoardEvents).mock.calls[0][0] as () => void;
+    await act(async () => {
+      onBoardEvent();
+    });
+
+    // The board is still there — no error screen, no white screen.
+    expect(screen.getByText("To do")).toBeInTheDocument();
+    expect(screen.getByText("Write the report")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/не вдалося завантажити дошку|couldn't load board/i),
+    ).not.toBeInTheDocument();
+    // ...and the failure is surfaced, not swallowed.
+    expect(mockShowApiError).toHaveBeenCalledTimes(1);
   });
 });
 

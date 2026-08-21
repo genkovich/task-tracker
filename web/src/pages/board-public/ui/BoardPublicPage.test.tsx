@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { ApiClientError } from "@/shared/api/client";
+import { usePublicBoardEvents } from "@/features/board/api/useBoardEvents";
 import BoardPublicPage from "./BoardPublicPage";
 
 // This task (T19) owns only web/src/pages/board-public/ and web/src/routes.ts.
@@ -24,6 +25,11 @@ vi.mock("@/features/board/api/boardApi", () => ({
 // page doesn't need a live EventSource in jsdom.
 vi.mock("@/features/board/api/useBoardEvents", () => ({
   usePublicBoardEvents: vi.fn(),
+}));
+
+const mockShowApiError = vi.fn();
+vi.mock("@/shared/lib/showApiError", () => ({
+  showApiError: (...args: unknown[]) => mockShowApiError(...args),
 }));
 
 const board = {
@@ -108,6 +114,58 @@ describe("BoardPublicPage — loading and generic error states", () => {
     await waitFor(() => {
       expect(screen.getByText("To do")).toBeInTheDocument();
     });
+  });
+});
+
+// Re-review 2026-08-21 re2 #2: a failed background refetch must not wipe an
+// already-rendered public board. Two distinct failure meanings here:
+// non-404 (network/500) = transient → keep the stale board + toast;
+// 404 `board.link_invalid` = the link was revoked → SCR-06 always, even
+// over a rendered board (that is NOT a stale-state case).
+describe("BoardPublicPage — refetch failures after a rendered board (re2 #2)", () => {
+  function fireBoardEvent() {
+    const onBoardEvent = vi.mocked(usePublicBoardEvents).mock.calls[0][1] as () => void;
+    return act(async () => {
+      onBoardEvent();
+    });
+  }
+
+  it("keeps the rendered board and surfaces a toast when a non-404 refetch fails", async () => {
+    mockGetPublicBoard.mockResolvedValueOnce(board);
+    mockGetPublicBoard.mockRejectedValueOnce(
+      new ApiClientError("internal", "internal server error", 500),
+    );
+
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("To do")).toBeInTheDocument();
+    });
+
+    await fireBoardEvent();
+
+    expect(screen.getByText("To do")).toBeInTheDocument();
+    expect(screen.getByText("Write the report")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/не вдалося завантажити дошку|couldn't load board/i),
+    ).not.toBeInTheDocument();
+    expect(mockShowApiError).toHaveBeenCalledTimes(1);
+  });
+
+  it("switches to the link-unavailable state when a refetch 404s over a rendered board", async () => {
+    mockGetPublicBoard.mockResolvedValueOnce(board);
+    mockGetPublicBoard.mockRejectedValueOnce(
+      new ApiClientError("board.link_invalid", "this link is no longer available", 404),
+    );
+
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("To do")).toBeInTheDocument();
+    });
+
+    await fireBoardEvent();
+
+    expect(await screen.findByText(/більше недоступний/i)).toBeInTheDocument();
+    expect(screen.queryByText("To do")).not.toBeInTheDocument();
   });
 });
 

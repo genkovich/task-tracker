@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { Route } from "./+types/BoardPage";
 import { boardApi } from "@/features/board/api/boardApi";
 import { useBoardEvents } from "@/features/board/api/useBoardEvents";
 import { useBoardDnd } from "@/features/board/model/useBoardDnd";
+import { showApiError } from "@/shared/lib/showApiError";
 import type { BoardState, Task } from "@/features/board/api/types";
 import { BoardLoadError, BoardLoading } from "@/features/board/ui/BoardLoadState";
 import { Column } from "@/features/board/ui/Column";
@@ -21,16 +22,26 @@ export default function BoardPage() {
   const [failed, setFailed] = useState(false);
   const [version, setVersion] = useState(0);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const boardRef = useRef<BoardState | null>(null);
 
   const refetch = useCallback(() => {
     boardApi
       .getBoard()
       .then((state) => {
+        boardRef.current = state;
         setBoard(state);
         setFailed(false);
         setVersion((v) => v + 1);
       })
-      .catch(() => setFailed(true));
+      .catch((err: unknown) => {
+        // The full error screen is for the initial load only; a failed
+        // refetch keeps the stale board on screen and surfaces a toast.
+        if (boardRef.current === null) {
+          setFailed(true);
+          return;
+        }
+        showApiError(err);
+      });
   }, []);
 
   useEffect(() => {
