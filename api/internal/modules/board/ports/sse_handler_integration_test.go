@@ -63,11 +63,15 @@ type t9WireErrorResponse struct {
 }
 
 // t9SSEEvent mirrors the board.state_changed.v1 shape (contracts/events.md).
+// WireEventName is not JSON — it carries the value of the SSE "event:" line
+// preceding "data:", i.e. the name browsers dispatch to
+// EventSource.addEventListener (review 2026-08-21, root B pin).
 type t9SSEEvent struct {
-	EventID    string `json:"event_id"`
-	EventType  string `json:"event_type"`
-	Version    int    `json:"version"`
-	OccurredAt string `json:"occurred_at"`
+	WireEventName string `json:"-"`
+	EventID       string `json:"event_id"`
+	EventType     string `json:"event_type"`
+	Version       int    `json:"version"`
+	OccurredAt    string `json:"occurred_at"`
 }
 
 // t9SSEFixture bundles a running server exposing only the SSE routes (T9)
@@ -130,16 +134,23 @@ func t9OpenSSEStream(t *testing.T, ts *httptest.Server, path string) (*http.Resp
 		defer close(events)
 
 		scanner := bufio.NewScanner(resp.Body)
+		var eventName string
 		for scanner.Scan() {
 			line := scanner.Text()
+			if name, ok := strings.CutPrefix(line, "event:"); ok {
+				eventName = strings.TrimSpace(name)
+				continue
+			}
 			data, ok := strings.CutPrefix(line, "data:")
 			if !ok {
 				continue
 			}
 			var evt t9SSEEvent
 			if err := json.Unmarshal([]byte(strings.TrimSpace(data)), &evt); err == nil {
+				evt.WireEventName = eventName
 				events <- evt
 			}
+			eventName = ""
 		}
 	}()
 
@@ -209,6 +220,8 @@ func TestSSEHandler_StreamPublicBoardEvents_ValidToken_ReceivesBroadcastEvent(t 
 		}
 	}
 
+	require.Equal(t, "board.state_changed", got.WireEventName,
+		"root B pin: the message must carry the SSE 'event:' line clients subscribe to via addEventListener")
 	require.Equal(t, "board.state_changed", got.EventType, "events.md v1 shape: event_type")
 	require.Equal(t, 1, got.Version, "events.md v1 shape: version")
 	require.NotEmpty(t, got.EventID, "events.md v1 shape: event_id")

@@ -125,9 +125,12 @@ func stream(w http.ResponseWriter, r *http.Request, events <-chan Event) {
 	}
 }
 
-// writeSSEEvent writes evt as one SSE "data:" line (contracts/events.md
-// board.state_changed.v1 shape) followed by the blank line that terminates
-// an SSE message.
+// writeSSEEvent writes evt as one named SSE message: an "event:" line
+// carrying evt.EventType — clients subscribe by name via
+// EventSource.addEventListener, and an unnamed message would never fire
+// their listener — then the "data:" line (contracts/events.md
+// board.state_changed.v1 shape) and the blank line that terminates an SSE
+// message.
 func writeSSEEvent(w http.ResponseWriter, evt Event) {
 	payload, err := json.Marshal(evt)
 	if err != nil {
@@ -135,6 +138,7 @@ func writeSSEEvent(w http.ResponseWriter, evt Event) {
 		// practice; skip this one event rather than break the stream.
 		return
 	}
+	_, _ = w.Write([]byte("event: " + evt.EventType + "\n"))
 	_, _ = w.Write([]byte("data: "))
 	_, _ = w.Write(payload)
 	_, _ = w.Write([]byte("\n\n"))

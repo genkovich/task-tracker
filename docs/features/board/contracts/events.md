@@ -32,6 +32,16 @@ API, без черги, без persist-шару. Секція нижче ада�
 
 ## Event: `board.state_changed.v1`
 
+На дроті — **іменоване** SSE-повідомлення: рядок `event:` несе тип події, рядок `data:` —
+JSON-payload. Клієнт підписується саме на ім'я (`EventSource.addEventListener("board.state_changed", …)`),
+тож повідомлення без рядка `event:` браузер мовчки відкидає — рядок обов'язковий.
+
+```text
+event: board.state_changed
+data: {"event_id":"<uuid>","event_type":"board.state_changed","version":1,"occurred_at":"<iso8601>"}
+
+```
+
 ```json
 {
   "event_id": "<uuid>",
@@ -41,7 +51,8 @@ API, без черги, без persist-шару. Секція нижче ада�
 }
 ```
 
-- **Required fields:** `event_id`, `event_type`, `version`, `occurred_at`. Немає поля `data`
+- **Required fields (wire):** SSE-рядок `event:` зі значенням, ідентичним `event_type` payload'а.
+- **Required fields (payload):** `event_id`, `event_type`, `version`, `occurred_at`. Немає поля `data`
   — sad.md §6 Flow 1 не показує жодного payload у самій події, лише подальший `GET`.
 - **Origin:** `sad.md` §6 Flow 1 — `API->>Other: розсилає подію "стан змінився" (SSE, ADR-0002)`,
   і Flow 3 (виток закриття з'єднання при відкликанні лінка).
