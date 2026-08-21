@@ -52,6 +52,10 @@ func (s *PublicLinkService) GetActiveLink(ctx context.Context) (*domain.PublicLi
 	return s.repo.GetActive(ctx)
 }
 
+func (s *PublicLinkService) GetLink(ctx context.Context, id uuid.UUID) (*domain.PublicLink, error) {
+	return s.repo.GetByID(ctx, id)
+}
+
 func (s *PublicLinkService) ResolvePublicLink(ctx context.Context, token string) (*domain.PublicLink, error) {
 	return s.repo.ResolveByToken(ctx, token)
 }
