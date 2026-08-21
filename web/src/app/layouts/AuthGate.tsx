@@ -7,8 +7,10 @@ export default function AuthGate() {
   const { user, isLoading } = useAuth();
 
   if (isLoading) {
+    // Борд-екрани темні (Design/scr01*) — і їхній прелоадер теж, інакше на
+    // вході в /board блимає білий екран.
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="dark flex min-h-screen items-center justify-center bg-background [color-scheme:dark]">
         <div className="size-6 animate-spin rounded-full border-2 border-muted-foreground/25 border-t-muted-foreground" />
       </div>
     );

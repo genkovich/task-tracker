@@ -26,7 +26,11 @@ export function BoardLoadError({ onRetry }: { onRetry: () => void }) {
         Icon={CircleAlert}
         title="Не вдалося завантажити дошку"
         description="Перевірте з'єднання і спробуйте ще раз."
-        action={<Button onClick={onRetry}>Спробувати ще</Button>}
+        action={
+          <Button className="rounded-full px-5" onClick={onRetry}>
+            Спробувати ще
+          </Button>
+        }
       />
     </div>
   );
