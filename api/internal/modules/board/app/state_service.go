@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
 
+	"github.com/genkovich/task-tracker/api/internal/modules/board/domain"
 	"github.com/genkovich/task-tracker/api/internal/modules/board/ports"
 )
 
@@ -47,4 +49,51 @@ func (s *StateService) GetPublicBoardState(ctx context.Context, token string) (*
 	}
 
 	return &ports.PublicBoardState{BoardID: link.BoardID, Columns: state.Columns}, nil
+}
+
+// GetTaskDetail returns one task in full with its comments (tasks TSK-01/
+// TSK-08) — the team-editor detail view. Returns domain.ErrTaskNotFound for
+// an unknown task.
+func (s *StateService) GetTaskDetail(ctx context.Context, taskID uuid.UUID) (*ports.TaskDetail, error) {
+	task, _, err := s.repo.TaskByID(ctx, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("get task detail: %w", err)
+	}
+
+	comments, err := s.repo.ListComments(ctx, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("get task detail: %w", err)
+	}
+
+	return &ports.TaskDetail{Task: *task, Comments: comments}, nil
+}
+
+// GetPublicTaskDetail returns the same detail to a viewer holding token
+// (TSK-12) — but only for a task that actually sits on the board behind that
+// token. A task belonging to another board is refused with the very same
+// domain.ErrLinkNotFound an unknown token gets (TSK-13): a distinct error
+// would itself confirm that the task exists somewhere.
+func (s *StateService) GetPublicTaskDetail(ctx context.Context, token string, taskID uuid.UUID) (*ports.TaskDetail, error) {
+	link, err := s.repo.PublicLinkByToken(ctx, token)
+	if err != nil {
+		return nil, fmt.Errorf("get public task detail: %w", err)
+	}
+
+	task, boardID, err := s.repo.TaskByID(ctx, taskID)
+	if err != nil {
+		if errors.Is(err, domain.ErrTaskNotFound) {
+			return nil, fmt.Errorf("get public task detail: %w", domain.ErrLinkNotFound)
+		}
+		return nil, fmt.Errorf("get public task detail: %w", err)
+	}
+	if boardID != link.BoardID {
+		return nil, fmt.Errorf("get public task detail: %w", domain.ErrLinkNotFound)
+	}
+
+	comments, err := s.repo.ListComments(ctx, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("get public task detail: %w", err)
+	}
+
+	return &ports.TaskDetail{Task: *task, Comments: comments}, nil
 }

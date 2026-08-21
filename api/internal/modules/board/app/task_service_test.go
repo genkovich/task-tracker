@@ -13,6 +13,7 @@ package app_test
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -36,7 +37,14 @@ type fakeRepo struct {
 	leftmost  uuid.UUID
 	columns   map[uuid.UUID]bool
 	tasks     map[uuid.UUID]domain.Task
+	comments  map[uuid.UUID]domain.Comment
+	links     map[string]*domain.PublicLink
 	insertErr error
+
+	// taskBoards overrides which board a given task belongs to — the tasks
+	// feature needs a task that sits on a *different* board than the token's
+	// (TSK-13), which a single-board fake could not express.
+	taskBoards map[uuid.UUID]uuid.UUID
 }
 
 func newFakeRepo(boardID, leftmostColumnID uuid.UUID, otherColumnIDs ...uuid.UUID) *fakeRepo {
@@ -45,10 +53,13 @@ func newFakeRepo(boardID, leftmostColumnID uuid.UUID, otherColumnIDs ...uuid.UUI
 		columns[id] = true
 	}
 	return &fakeRepo{
-		boardID:  boardID,
-		leftmost: leftmostColumnID,
-		columns:  columns,
-		tasks:    make(map[uuid.UUID]domain.Task),
+		boardID:    boardID,
+		leftmost:   leftmostColumnID,
+		columns:    columns,
+		tasks:      make(map[uuid.UUID]domain.Task),
+		comments:   make(map[uuid.UUID]domain.Comment),
+		links:      make(map[string]*domain.PublicLink),
+		taskBoards: make(map[uuid.UUID]uuid.UUID),
 	}
 }
 
@@ -85,10 +96,10 @@ func (r *fakeRepo) InsertTask(_ context.Context, task *domain.Task) error {
 }
 
 // UpdateTask mirrors the real repository's contract honestly (review
-// 2026-08-21, root G): only title/assignee change on the stored row — never
-// a full replacement, which would mask a service handing over a Task with
-// zero column_id/created_at — and, like the SQL RETURNING, the caller's
-// task is back-filled with the stored row's remaining fields.
+// 2026-08-21, root G): only the editable detail fields change on the stored
+// row — never a full replacement, which would mask a service handing over a
+// Task with zero column_id/created_at — and, like the SQL RETURNING, the
+// caller's task is back-filled with the stored row's remaining fields.
 func (r *fakeRepo) UpdateTask(_ context.Context, task *domain.Task) (uuid.UUID, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -98,9 +109,60 @@ func (r *fakeRepo) UpdateTask(_ context.Context, task *domain.Task) (uuid.UUID, 
 	}
 	stored.Title = task.Title
 	stored.Assignee = task.Assignee
+	stored.Description = task.Description
+	stored.Priority = task.Priority
+	stored.DueDate = task.DueDate
 	stored.UpdatedAt = time.Now()
 	r.tasks[task.ID] = stored
 	*task = stored
+	return r.boardID, nil
+}
+
+func (r *fakeRepo) TaskByID(_ context.Context, taskID uuid.UUID) (*domain.Task, uuid.UUID, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	task, ok := r.tasks[taskID]
+	if !ok {
+		return nil, uuid.Nil, domain.ErrTaskNotFound
+	}
+	boardID := r.boardID
+	if override, ok := r.taskBoards[taskID]; ok {
+		boardID = override
+	}
+	return &task, boardID, nil
+}
+
+func (r *fakeRepo) ListComments(_ context.Context, taskID uuid.UUID) ([]domain.Comment, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	comments := []domain.Comment{}
+	for _, c := range r.comments {
+		if c.TaskID == taskID {
+			comments = append(comments, c)
+		}
+	}
+	sort.Slice(comments, func(i, j int) bool { return comments[i].CreatedAt.Before(comments[j].CreatedAt) })
+	return comments, nil
+}
+
+func (r *fakeRepo) InsertComment(_ context.Context, comment *domain.Comment) (uuid.UUID, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.tasks[comment.TaskID]; !ok {
+		return uuid.Nil, domain.ErrTaskNotFound
+	}
+	comment.CreatedAt = time.Now()
+	r.comments[comment.ID] = *comment
+	return r.boardID, nil
+}
+
+func (r *fakeRepo) DeleteComment(_ context.Context, commentID uuid.UUID) (uuid.UUID, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.comments[commentID]; !ok {
+		return uuid.Nil, domain.ErrCommentNotFound
+	}
+	delete(r.comments, commentID)
 	return r.boardID, nil
 }
 
@@ -138,8 +200,14 @@ func (r *fakeRepo) RevokePublicLink(_ context.Context, _ uuid.UUID) error {
 	return errors.New("not used by task_service tests")
 }
 
-func (r *fakeRepo) PublicLinkByToken(_ context.Context, _ string) (*domain.PublicLink, error) {
-	return nil, errors.New("not used by task_service tests")
+func (r *fakeRepo) PublicLinkByToken(_ context.Context, token string) (*domain.PublicLink, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	link, ok := r.links[token]
+	if !ok {
+		return nil, domain.ErrLinkNotFound
+	}
+	return link, nil
 }
 
 func (r *fakeRepo) PublicLinkByBoard(_ context.Context, _ uuid.UUID) (*domain.PublicLink, error) {
@@ -150,6 +218,27 @@ func (r *fakeRepo) seedTask(task domain.Task) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.tasks[task.ID] = task
+}
+
+// seedLink registers a public-link token pointing at boardID, so token-scoped
+// reads can be exercised without the link service.
+func (r *fakeRepo) seedLink(token string, boardID uuid.UUID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.links[token] = &domain.PublicLink{ID: uuid.Must(uuid.NewV7()), BoardID: boardID, Token: token}
+}
+
+// seedComment stores a comment as if it had been persisted.
+func (r *fakeRepo) seedComment(comment domain.Comment) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.comments[comment.ID] = comment
+}
+
+func (r *fakeRepo) commentCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.comments)
 }
 
 func (r *fakeRepo) getTask(id uuid.UUID) (domain.Task, bool) {
@@ -220,7 +309,7 @@ func TestCreateTask_NonEmptyTitle_LandsInLeftmostColumn(t *testing.T) {
 	bcast := &fakeBroadcaster{}
 	svc := app.NewTaskService(repo, bcast)
 
-	task, err := svc.CreateTask(context.Background(), boardID, "Write the report", nil)
+	task, err := svc.CreateTask(context.Background(), boardID, domain.TaskDetails{Title: "Write the report"})
 
 	require.NoError(t, err)
 	require.NotNil(t, task)
@@ -243,7 +332,7 @@ func TestCreateTask_EmptyTitle_RejectedNoWriteNoBroadcast(t *testing.T) {
 	bcast := &fakeBroadcaster{}
 	svc := app.NewTaskService(repo, bcast)
 
-	task, err := svc.CreateTask(context.Background(), boardID, "", nil)
+	task, err := svc.CreateTask(context.Background(), boardID, domain.TaskDetails{})
 
 	require.ErrorIs(t, err, domain.ErrTitleRequired)
 	require.Nil(t, task)
@@ -264,7 +353,7 @@ func TestEditTask_UpdatesTitleAndAssignee(t *testing.T) {
 	svc := app.NewTaskService(repo, bcast)
 
 	newAssignee := "Alex"
-	updated, err := svc.EditTask(context.Background(), existing.ID, "New title", &newAssignee)
+	updated, err := svc.EditTask(context.Background(), existing.ID, domain.TaskDetails{Title: "New title", Assignee: &newAssignee})
 
 	require.NoError(t, err)
 	require.NotNil(t, updated)

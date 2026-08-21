@@ -70,6 +70,22 @@ func (r *fakeRepo) DeleteTask(context.Context, uuid.UUID) (uuid.UUID, error) {
 	return uuid.Nil, errors.New("fakeRepo: DeleteTask not implemented")
 }
 
+func (r *fakeRepo) TaskByID(context.Context, uuid.UUID) (*domain.Task, uuid.UUID, error) {
+	return nil, uuid.Nil, errors.New("fakeRepo: TaskByID not implemented")
+}
+
+func (r *fakeRepo) ListComments(context.Context, uuid.UUID) ([]domain.Comment, error) {
+	return nil, errors.New("fakeRepo: ListComments not implemented")
+}
+
+func (r *fakeRepo) InsertComment(context.Context, *domain.Comment) (uuid.UUID, error) {
+	return uuid.Nil, errors.New("fakeRepo: InsertComment not implemented")
+}
+
+func (r *fakeRepo) DeleteComment(context.Context, uuid.UUID) (uuid.UUID, error) {
+	return uuid.Nil, errors.New("fakeRepo: DeleteComment not implemented")
+}
+
 // IssuePublicLink mirrors the real repo's contract (data-model.md UNIQUE
 // (board_id)): domain.ErrLinkAlreadyActive when the board already has a link,
 // no write on that path.

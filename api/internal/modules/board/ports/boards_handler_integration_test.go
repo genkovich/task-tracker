@@ -79,7 +79,7 @@ func setupT20BoardsServer(t *testing.T) (*httptest.Server, *database.DB) {
 	hub := infra.NewHub()
 
 	boardHandler := ports.NewBoardHandler(app.NewBoardService(repo), app.NewStateService(repo))
-	taskHandler := ports.NewTaskHandler(app.NewTaskService(repo, hub))
+	taskHandler := ports.NewTaskHandler(app.NewTaskService(repo, hub), app.NewStateService(repo))
 
 	r := chi.NewRouter()
 	r.Route("/api/v1", func(api chi.Router) {

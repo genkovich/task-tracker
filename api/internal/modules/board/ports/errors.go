@@ -61,6 +61,18 @@ func mapTaskError(err error) error {
 			Message:    "task assignee must be at most 200 characters",
 			StatusCode: http.StatusUnprocessableEntity,
 		}
+	case errors.Is(err, domain.ErrDescriptionTooLong):
+		return &apperr.Error{
+			Code:       "task.description_too_long",
+			Message:    "task description must be at most 4000 characters",
+			StatusCode: http.StatusUnprocessableEntity,
+		}
+	case errors.Is(err, domain.ErrPriorityInvalid):
+		return &apperr.Error{
+			Code:       "task.priority_invalid",
+			Message:    "task priority must be one of low, medium, high",
+			StatusCode: http.StatusUnprocessableEntity,
+		}
 	case errors.Is(err, domain.ErrTaskNotFound):
 		return &apperr.Error{
 			Code:       "task.not_found",
@@ -72,6 +84,50 @@ func mapTaskError(err error) error {
 			Code:       "board.column_not_found",
 			Message:    "target column does not exist",
 			StatusCode: http.StatusUnprocessableEntity,
+		}
+	default:
+		return err
+	}
+}
+
+// mapCommentError maps the comment domain sentinels (T5's CommentService)
+// surfaced on the team-editor comment routes (tasks contract
+// listTaskComments/addTaskComment/deleteTaskComment) to their documented wire
+// codes/status. A comment on a task that no longer exists reads as
+// task.not_found — the caller's mistake is the task id, not the comment.
+func mapCommentError(err error) error {
+	switch {
+	case errors.Is(err, domain.ErrTaskNotFound):
+		return mapTaskError(err)
+	case errors.Is(err, domain.ErrCommentAuthorRequired):
+		return &apperr.Error{
+			Code:       "comment.author_required",
+			Message:    "comment author is required",
+			StatusCode: http.StatusUnprocessableEntity,
+		}
+	case errors.Is(err, domain.ErrCommentAuthorTooLong):
+		return &apperr.Error{
+			Code:       "comment.author_too_long",
+			Message:    "comment author must be at most 200 characters",
+			StatusCode: http.StatusUnprocessableEntity,
+		}
+	case errors.Is(err, domain.ErrCommentBodyRequired):
+		return &apperr.Error{
+			Code:       "comment.body_required",
+			Message:    "comment body is required",
+			StatusCode: http.StatusUnprocessableEntity,
+		}
+	case errors.Is(err, domain.ErrCommentBodyTooLong):
+		return &apperr.Error{
+			Code:       "comment.body_too_long",
+			Message:    "comment body must be at most 2000 characters",
+			StatusCode: http.StatusUnprocessableEntity,
+		}
+	case errors.Is(err, domain.ErrCommentNotFound):
+		return &apperr.Error{
+			Code:       "comment.not_found",
+			Message:    "comment not found",
+			StatusCode: http.StatusNotFound,
 		}
 	default:
 		return err

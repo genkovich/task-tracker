@@ -159,28 +159,140 @@ func (r *PostgresRepository) columnsForBoard(ctx context.Context, boardID uuid.U
 	return columns, nil
 }
 
-func (r *PostgresRepository) tasksForColumn(ctx context.Context, columnID uuid.UUID) ([]domain.Task, error) {
+// tasksForColumn reads the card-level view of a column's tasks. The
+// description body is deliberately not selected — only whether there is one
+// (tasks spec §6) — and the comment count comes from one aggregate over the
+// whole column rather than a per-task query, which on a 100-task board would
+// mean 100 extra round trips per render (data-model.md §Access patterns).
+func (r *PostgresRepository) tasksForColumn(ctx context.Context, columnID uuid.UUID) ([]ports.TaskListItem, error) {
 	rows, err := r.db.Query(ctx,
-		`SELECT id, column_id, title, assignee, created_at, updated_at
-		 FROM tasks WHERE column_id = $1 ORDER BY created_at ASC`, columnID,
+		`SELECT t.id, t.column_id, t.title, t.assignee, t.priority, t.due_date,
+		        t.description <> '' AS has_description, COUNT(c.id) AS comment_count,
+		        t.created_at, t.updated_at
+		 FROM tasks t
+		 LEFT JOIN task_comments c ON c.task_id = t.id
+		 WHERE t.column_id = $1
+		 GROUP BY t.id
+		 ORDER BY t.created_at ASC`, columnID,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	tasks := []domain.Task{}
+	tasks := []ports.TaskListItem{}
 	for rows.Next() {
-		var t domain.Task
-		if err := rows.Scan(&t.ID, &t.ColumnID, &t.Title, &t.Assignee, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		var (
+			t        ports.TaskListItem
+			priority string
+		)
+		if err := rows.Scan(&t.ID, &t.ColumnID, &t.Title, &t.Assignee, &priority, &t.DueDate,
+			&t.HasDescription, &t.CommentCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
+		t.Priority = domain.Priority(priority)
 		tasks = append(tasks, t)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return tasks, nil
+}
+
+// TaskByID returns one task in full plus the board it belongs to — the board
+// id is resolved in the same read, so a token-scoped caller never has a gap
+// between "which task is this" and "whose board is it" (tasks TSK-13).
+func (r *PostgresRepository) TaskByID(ctx context.Context, taskID uuid.UUID) (*domain.Task, uuid.UUID, error) {
+	var (
+		task     domain.Task
+		priority string
+		boardID  uuid.UUID
+	)
+	err := r.db.QueryRow(ctx,
+		`SELECT t.id, t.column_id, t.title, t.assignee, t.description, t.priority, t.due_date,
+		        t.created_at, t.updated_at, c.board_id
+		 FROM tasks t
+		 JOIN columns c ON c.id = t.column_id
+		 WHERE t.id = $1`, taskID,
+	).Scan(&task.ID, &task.ColumnID, &task.Title, &task.Assignee, &task.Description, &priority,
+		&task.DueDate, &task.CreatedAt, &task.UpdatedAt, &boardID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, uuid.Nil, domain.ErrTaskNotFound
+		}
+		return nil, uuid.Nil, fmt.Errorf("task by id: %w", err)
+	}
+	task.Priority = domain.Priority(priority)
+	return &task, boardID, nil
+}
+
+// ListComments returns a task's comments oldest first (tasks TSK-08), served
+// by idx_task_comments_task_id_created_at.
+func (r *PostgresRepository) ListComments(ctx context.Context, taskID uuid.UUID) ([]domain.Comment, error) {
+	rows, err := r.db.Query(ctx,
+		`SELECT id, task_id, author, body, created_at
+		 FROM task_comments WHERE task_id = $1 ORDER BY created_at ASC, id ASC`, taskID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list comments: %w", err)
+	}
+	defer rows.Close()
+
+	comments := []domain.Comment{}
+	for rows.Next() {
+		var c domain.Comment
+		if err := rows.Scan(&c.ID, &c.TaskID, &c.Author, &c.Body, &c.CreatedAt); err != nil {
+			return nil, fmt.Errorf("list comments: %w", err)
+		}
+		comments = append(comments, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list comments: %w", err)
+	}
+	return comments, nil
+}
+
+// InsertComment persists a comment and returns the board its task sits on,
+// for the board-scoped broadcast (BRD-05). An FK violation means the task is
+// gone → domain.ErrTaskNotFound, never a raw 500 (test-plan.md edge case).
+func (r *PostgresRepository) InsertComment(ctx context.Context, comment *domain.Comment) (uuid.UUID, error) {
+	var boardID uuid.UUID
+	err := r.db.QueryRow(ctx,
+		`INSERT INTO task_comments (id, task_id, author, body)
+		 VALUES ($1, $2, $3, $4)
+		 RETURNING created_at,
+		           (SELECT c.board_id FROM columns c
+		            JOIN tasks t ON t.column_id = c.id
+		            WHERE t.id = task_comments.task_id)`,
+		comment.ID, comment.TaskID, comment.Author, comment.Body,
+	).Scan(&comment.CreatedAt, &boardID)
+	if err != nil {
+		if database.IsPgForeignKeyViolation(err) {
+			return uuid.Nil, domain.ErrTaskNotFound
+		}
+		return uuid.Nil, fmt.Errorf("insert comment: %w", err)
+	}
+	return boardID, nil
+}
+
+// DeleteComment hard-deletes a comment (tasks TSK-10) and returns the board
+// its task sits on, for the board-scoped broadcast.
+func (r *PostgresRepository) DeleteComment(ctx context.Context, commentID uuid.UUID) (uuid.UUID, error) {
+	var boardID uuid.UUID
+	err := r.db.QueryRow(ctx,
+		`DELETE FROM task_comments WHERE id = $1
+		 RETURNING (SELECT c.board_id FROM columns c
+		            JOIN tasks t ON t.column_id = c.id
+		            WHERE t.id = task_comments.task_id)`,
+		commentID,
+	).Scan(&boardID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.Nil, domain.ErrCommentNotFound
+		}
+		return uuid.Nil, fmt.Errorf("delete comment: %w", err)
+	}
+	return boardID, nil
 }
 
 func (r *PostgresRepository) publicLinkForBoard(ctx context.Context, boardID uuid.UUID) (*domain.PublicLink, error) {
@@ -217,10 +329,10 @@ func (r *PostgresRepository) LeftmostColumnID(ctx context.Context, boardID uuid.
 // InsertTask persists a new task.
 func (r *PostgresRepository) InsertTask(ctx context.Context, task *domain.Task) error {
 	err := r.db.QueryRow(ctx,
-		`INSERT INTO tasks (id, column_id, title, assignee)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO tasks (id, column_id, title, assignee, description, priority, due_date)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 RETURNING created_at, updated_at`,
-		task.ID, task.ColumnID, task.Title, task.Assignee,
+		task.ID, task.ColumnID, task.Title, task.Assignee, task.Description, string(task.Priority), task.DueDate,
 	).Scan(&task.CreatedAt, &task.UpdatedAt)
 	if err != nil {
 		if database.IsPgForeignKeyViolation(err) {
@@ -238,11 +350,12 @@ func (r *PostgresRepository) InsertTask(ctx context.Context, task *domain.Task) 
 func (r *PostgresRepository) UpdateTask(ctx context.Context, task *domain.Task) (uuid.UUID, error) {
 	var boardID uuid.UUID
 	err := r.db.QueryRow(ctx,
-		`UPDATE tasks SET title = $1, assignee = $2, updated_at = now()
-		 WHERE id = $3
+		`UPDATE tasks
+		 SET title = $1, assignee = $2, description = $3, priority = $4, due_date = $5, updated_at = now()
+		 WHERE id = $6
 		 RETURNING column_id, created_at, updated_at,
 		           (SELECT board_id FROM columns WHERE columns.id = tasks.column_id)`,
-		task.Title, task.Assignee, task.ID,
+		task.Title, task.Assignee, task.Description, string(task.Priority), task.DueDate, task.ID,
 	).Scan(&task.ColumnID, &task.CreatedAt, &task.UpdatedAt, &boardID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -258,14 +371,18 @@ func (r *PostgresRepository) UpdateTask(ctx context.Context, task *domain.Task) 
 // returns the complete moved row plus its (new) board id.
 func (r *PostgresRepository) MoveTask(ctx context.Context, taskID, columnID uuid.UUID) (*domain.Task, uuid.UUID, error) {
 	task := domain.Task{ID: taskID}
-	var boardID uuid.UUID
+	var (
+		priority string
+		boardID  uuid.UUID
+	)
 	err := r.db.QueryRow(ctx,
 		`UPDATE tasks SET column_id = $1, updated_at = now()
 		 WHERE id = $2
-		 RETURNING column_id, title, assignee, created_at, updated_at,
+		 RETURNING column_id, title, assignee, description, priority, due_date, created_at, updated_at,
 		           (SELECT board_id FROM columns WHERE columns.id = tasks.column_id)`,
 		columnID, taskID,
-	).Scan(&task.ColumnID, &task.Title, &task.Assignee, &task.CreatedAt, &task.UpdatedAt, &boardID)
+	).Scan(&task.ColumnID, &task.Title, &task.Assignee, &task.Description, &priority, &task.DueDate,
+		&task.CreatedAt, &task.UpdatedAt, &boardID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, uuid.Nil, domain.ErrTaskNotFound
@@ -275,6 +392,7 @@ func (r *PostgresRepository) MoveTask(ctx context.Context, taskID, columnID uuid
 		}
 		return nil, uuid.Nil, fmt.Errorf("move task: %w", err)
 	}
+	task.Priority = domain.Priority(priority)
 	return &task, boardID, nil
 }
 

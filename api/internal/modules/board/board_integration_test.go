@@ -248,3 +248,227 @@ func TestPublicBoardWiring_HighTrafficRateLimit(t *testing.T) {
 	require.Equal(t, http.StatusTooManyRequests, resp.StatusCode,
 		"the 301st GET public board within a minute must hit the high-traffic limit")
 }
+
+// issuePublicLink issues a link over the team-editor route and returns its
+// token.
+func issuePublicLink(t *testing.T, ts *httptest.Server, boardID uuid.UUID) string {
+	t.Helper()
+
+	resp, err := http.Post(ts.URL+"/api/v1/boards/"+boardID.String()+"/public-link", "application/json", nil) //nolint:noctx // test helper
+	require.NoError(t, err)
+	var link struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&link))
+	resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	require.NotEmpty(t, link.Token)
+	return link.Token
+}
+
+// createTaskOnBoard creates a task through the real HTTP route and returns
+// its id.
+func createTaskOnBoard(t *testing.T, ts *httptest.Server, boardID uuid.UUID, payload map[string]any) string {
+	t.Helper()
+
+	payload["board_id"] = boardID.String()
+	raw, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	resp, err := http.Post(ts.URL+"/api/v1/tasks", "application/json", bytes.NewReader(raw)) //nolint:noctx // test helper
+	require.NoError(t, err)
+	var task struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&task))
+	resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	return task.ID
+}
+
+// createBoard creates a second board through the dashboard route.
+func createBoard(t *testing.T, ts *httptest.Server, name string) uuid.UUID {
+	t.Helper()
+
+	raw, err := json.Marshal(map[string]any{"name": name})
+	require.NoError(t, err)
+	resp, err := http.Post(ts.URL+"/api/v1/boards", "application/json", bytes.NewReader(raw)) //nolint:noctx // test helper
+	require.NoError(t, err)
+	var board struct {
+		ID uuid.UUID `json:"id"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&board))
+	resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	return board.ID
+}
+
+// TestPublicTaskDetail_ViewerSeesDetailsWithoutLeaks covers tasks TSK-12: the
+// viewer's detail read serves the same content as the editor's, and nothing
+// beyond it — no board id, no public link.
+func TestPublicTaskDetail_ViewerSeesDetailsWithoutLeaks(t *testing.T) {
+	ts := setupBoardServer(t)
+	token := issuePublicLink(t, ts, wiringSeedBoardID)
+	taskID := createTaskOnBoard(t, ts, wiringSeedBoardID, map[string]any{
+		"title":       "Public detail",
+		"description": "visible to the viewer",
+		"priority":    "high",
+		"due_date":    "2026-09-01",
+	})
+
+	resp, err := http.Get(ts.URL + "/api/v1/public/" + token + "/tasks/" + taskID) //nolint:noctx // test helper
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, "no-store", resp.Header.Get("Cache-Control"))
+	require.Equal(t, "noindex, nofollow", resp.Header.Get("X-Robots-Tag"))
+
+	var raw map[string]json.RawMessage
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&raw))
+	require.Contains(t, raw, "task")
+	require.Contains(t, raw, "comments")
+	require.NotContains(t, raw, "board_id", "the viewer must not learn the board id")
+	require.NotContains(t, raw, "public_link")
+
+	var task struct {
+		Description string  `json:"description"`
+		Priority    string  `json:"priority"`
+		DueDate     *string `json:"due_date"`
+	}
+	require.NoError(t, json.Unmarshal(raw["task"], &task))
+	require.Equal(t, "visible to the viewer", task.Description)
+	require.Equal(t, "high", task.Priority)
+	require.NotNil(t, task.DueDate)
+	require.Equal(t, "2026-09-01", *task.DueDate)
+}
+
+// TestPublicTaskDetail_TaskOfAnotherBoard_Refused covers tasks TSK-13 — the
+// feature's central authorization property. Without the board check, a single
+// public link would read every task in the product, since task ids are global
+// and the route is unauthenticated.
+func TestPublicTaskDetail_TaskOfAnotherBoard_Refused(t *testing.T) {
+	ts := setupBoardServer(t)
+	token := issuePublicLink(t, ts, wiringSeedBoardID)
+
+	otherBoardID := createBoard(t, ts, "Board B")
+	foreignTaskID := createTaskOnBoard(t, ts, otherBoardID, map[string]any{
+		"title":       "Board B secret",
+		"description": "must not leak through board A's link",
+	})
+
+	resp, err := http.Get(ts.URL + "/api/v1/public/" + token + "/tasks/" + foreignTaskID) //nolint:noctx // test helper
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusNotFound, resp.StatusCode,
+		"a task of another board must be refused through this token (TSK-13)")
+
+	raw, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "Board B secret", "the refusal must not echo the task")
+	require.Contains(t, string(raw), "board.link_invalid",
+		"the refusal must be indistinguishable from an unknown token")
+}
+
+// TestPublicTaskDetail_HighTrafficRateLimit covers spec §6.1: the detail read
+// sits in the 300/min tier next to the board fetch — a room of phones opening
+// cards would exhaust the general 60/min budget within seconds otherwise.
+func TestPublicTaskDetail_HighTrafficRateLimit(t *testing.T) {
+	ts := setupBoardServer(t)
+	token := issuePublicLink(t, ts, wiringSeedBoardID)
+	taskID := createTaskOnBoard(t, ts, wiringSeedBoardID, map[string]any{"title": "Opened by everyone"})
+
+	url := ts.URL + "/api/v1/public/" + token + "/tasks/" + taskID
+
+	// Past the old 60/min ceiling and still inside the new one: none of these
+	// may be throttled.
+	for i := 1; i <= 200; i++ {
+		resp, err := http.Get(url) //nolint:noctx // test helper
+		require.NoError(t, err)
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		require.Equalf(t, http.StatusOK, resp.StatusCode,
+			"GET public task detail #%d must fit the 300/min high-traffic budget, not the old 60/min one", i)
+	}
+}
+
+// TSK-12: there is no comment route under a public token — refused by
+// routing, not by a check inside a handler that could be forgotten.
+func TestPublicTaskDetail_NoCommentRoutesUnderToken(t *testing.T) {
+	ts := setupBoardServer(t)
+	token := issuePublicLink(t, ts, wiringSeedBoardID)
+	taskID := createTaskOnBoard(t, ts, wiringSeedBoardID, map[string]any{"title": "Read only"})
+	ctx := context.Background()
+
+	base := ts.URL + "/api/v1/public/" + token + "/tasks/" + taskID
+
+	cases := []struct {
+		method string
+		url    string
+	}{
+		{http.MethodPost, base + "/comments"},
+		{http.MethodGet, base + "/comments"},
+		{http.MethodDelete, base + "/comments/" + uuid.NewString()},
+		{http.MethodPatch, base},
+		{http.MethodDelete, base},
+	}
+
+	for _, tc := range cases {
+		req, err := http.NewRequestWithContext(ctx, tc.method, tc.url, nil)
+		require.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+
+		require.Containsf(t, []int{http.StatusNotFound, http.StatusMethodNotAllowed}, resp.StatusCode,
+			"TSK-12: %s %s must be refused by routing, got %d", tc.method, tc.url, resp.StatusCode)
+	}
+}
+
+// TSK-01 + spec §6: the board state carries the card fields and never a
+// description body. Asserted on the raw JSON — a typed decode would silently
+// ignore a field that crept back in, which is exactly the regression this
+// guards against.
+func TestBoardState_CarriesCardFieldsNotDescriptionBody(t *testing.T) {
+	ts := setupBoardServer(t)
+	taskID := createTaskOnBoard(t, ts, wiringSeedBoardID, map[string]any{
+		"title":       "Described",
+		"description": "a body nobody wants on every refetch",
+		"priority":    "low",
+	})
+
+	resp, err := http.Get(ts.URL + "/api/v1/boards/" + wiringSeedBoardID.String()) //nolint:noctx // test helper
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.NotContains(t, string(body), "a body nobody wants on every refetch",
+		"the board state must not carry description bodies (spec §6)")
+
+	var state struct {
+		Columns []struct {
+			Tasks []map[string]json.RawMessage `json:"tasks"`
+		} `json:"columns"`
+	}
+	require.NoError(t, json.Unmarshal(body, &state))
+
+	var card map[string]json.RawMessage
+	for _, col := range state.Columns {
+		for _, task := range col.Tasks {
+			var id string
+			require.NoError(t, json.Unmarshal(task["id"], &id))
+			if id == taskID {
+				card = task
+			}
+		}
+	}
+	require.NotNil(t, card, "the created task must appear on the board")
+	require.NotContains(t, card, "description")
+	require.Contains(t, card, "has_description")
+	require.Contains(t, card, "comment_count")
+	require.Contains(t, card, "priority")
+	require.Contains(t, card, "due_date")
+}

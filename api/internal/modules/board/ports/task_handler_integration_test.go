@@ -100,7 +100,7 @@ func setupT7TaskHandlerServer(t *testing.T) t7TaskHandlerFixture {
 
 	// ports.NewTaskHandler does not exist yet (T7) — this line is why the
 	// package fails to compile before T7 lands.
-	taskHandler := ports.NewTaskHandler(taskSvc)
+	taskHandler := ports.NewTaskHandler(taskSvc, app.NewStateService(repo))
 
 	r := chi.NewRouter()
 	r.Route("/api/v1", taskHandler.RegisterRoutes)

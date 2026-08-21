@@ -24,6 +24,14 @@ type SSEBoardStateService interface {
 	GetBoardState(ctx context.Context, boardID uuid.UUID) (*BoardState, error)
 }
 
+// SSEPublicTokenService validates a public-link token before its viewer SSE
+// connection is registered (AC-11) — satisfied by app.StateService. Narrower
+// than PublicStateService on purpose: the stream only ever asks "is this
+// token still live", never for a task's details.
+type SSEPublicTokenService interface {
+	GetPublicBoardState(ctx context.Context, token string) (*PublicBoardState, error)
+}
+
 // SSERegistry is the connection-registry port streamBoardEvents/
 // streamPublicBoardEvents depend on — satisfied by infra.Hub's Subscribe.
 // Deliberately its own small interface (not infra.Hub's Register/Unregister
@@ -44,14 +52,14 @@ type SSERegistry interface {
 // connections (boards BRD-05).
 type SSEHandler struct {
 	registry      SSERegistry
-	stateService  PublicStateService
+	stateService  SSEPublicTokenService
 	boardStateSvc SSEBoardStateService
 }
 
 // NewSSEHandler wires an SSEHandler against the given connection registry
 // and the state services used to validate a public-viewer token / a board id
 // before registering a connection.
-func NewSSEHandler(registry SSERegistry, stateService PublicStateService, boardStateSvc SSEBoardStateService) *SSEHandler {
+func NewSSEHandler(registry SSERegistry, stateService SSEPublicTokenService, boardStateSvc SSEBoardStateService) *SSEHandler {
 	return &SSEHandler{registry: registry, stateService: stateService, boardStateSvc: boardStateSvc}
 }
 

@@ -33,6 +33,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/genkovich/task-tracker/api/internal/modules/board/app"
+	"github.com/genkovich/task-tracker/api/internal/modules/board/domain"
 	"github.com/genkovich/task-tracker/api/internal/modules/board/infra"
 	"github.com/genkovich/task-tracker/api/internal/platform/database"
 	"github.com/genkovich/task-tracker/api/internal/platform/database/dbtest"
@@ -103,7 +104,7 @@ func TestConcurrentMoveTask_ConvergesOnSingleLastWrittenColumn(t *testing.T) {
 	f := setupT12(t)
 	ctx := context.Background()
 
-	task, err := f.taskSvc.CreateTask(ctx, t12SeedBoardID, "Concurrent move target", nil)
+	task, err := f.taskSvc.CreateTask(ctx, t12SeedBoardID, domain.TaskDetails{Title: "Concurrent move target"})
 	require.NoError(t, err)
 	require.Equal(t, t12SeedColumnToDoID, task.ColumnID, "sanity: task starts in the leftmost column")
 

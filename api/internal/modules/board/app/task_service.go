@@ -33,18 +33,19 @@ func NewTaskService(repo ports.Repository, bcast ports.Broadcaster) *TaskService
 	return &TaskService{repo: repo, bcast: bcast}
 }
 
-// CreateTask creates a task with the given title/assignee in the leftmost
-// column of boardID (AC-01, boards BRD-08). An empty title is rejected
-// before any repository write (AC-02); an unknown board surfaces as
+// CreateTask creates a task with the given details in the leftmost column of
+// boardID (AC-01, boards BRD-08). An empty title is rejected before any
+// repository write (AC-02), as is an over-long description or an unknown
+// priority (tasks TSK-02/TSK-04); an unknown board surfaces as
 // domain.ErrBoardNotFound. On success it broadcasts board.state_changed to
 // that board exactly once.
-func (s *TaskService) CreateTask(ctx context.Context, boardID uuid.UUID, title string, assignee *string) (*domain.Task, error) {
+func (s *TaskService) CreateTask(ctx context.Context, boardID uuid.UUID, details domain.TaskDetails) (*domain.Task, error) {
 	leftmostID, err := s.repo.LeftmostColumnID(ctx, boardID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve leftmost column: %w", err)
 	}
 
-	task, err := domain.NewTask(leftmostID, title, assignee)
+	task, err := domain.NewTask(leftmostID, details)
 	if err != nil {
 		return nil, err
 	}
@@ -57,17 +58,14 @@ func (s *TaskService) CreateTask(ctx context.Context, boardID uuid.UUID, title s
 	return task, nil
 }
 
-// EditTask updates an existing task's title and assignee (AC-03) and
-// returns the complete updated task — the repository fills the remaining
-// fields (column_id, created_at, updated_at) from the stored row. On
-// success it broadcasts board.state_changed to the task's board exactly
-// once.
-func (s *TaskService) EditTask(ctx context.Context, taskID uuid.UUID, title string, assignee *string) (*domain.Task, error) {
+// EditTask replaces an existing task's details (AC-03, tasks TSK-01/TSK-03/
+// TSK-05/TSK-07) and returns the complete updated task — the repository fills
+// the remaining fields (column_id, created_at, updated_at) from the stored
+// row. On success it broadcasts board.state_changed to the task's board
+// exactly once.
+func (s *TaskService) EditTask(ctx context.Context, taskID uuid.UUID, details domain.TaskDetails) (*domain.Task, error) {
 	task := &domain.Task{ID: taskID}
-	if err := task.SetTitle(title); err != nil {
-		return nil, err
-	}
-	if err := task.SetAssignee(assignee); err != nil {
+	if err := task.SetDetails(details); err != nil {
 		return nil, err
 	}
 
