@@ -10,6 +10,8 @@ class MockEventSource {
   url: string;
   closed = false;
   listeners = new Map<string, Listener[]>();
+  onopen: ((ev: Event) => void) | null = null;
+  onerror: ((ev: Event) => void) | null = null;
 
   constructor(url: string) {
     this.url = url;
@@ -78,6 +80,42 @@ describe("useBoardEvents", () => {
     source.emit("some.other.event");
 
     expect(onStateChanged).not.toHaveBeenCalled();
+  });
+
+  // Review 2026-08-21 root C — contracts/events.md "Retry / reconnect": the
+  // browser's EventSource auto-reconnects, and events missed while
+  // disconnected are recovered by a fresh GET. The hook must refetch when a
+  // connection (re)opens and once on error, or a reconnect silently shows
+  // stale state forever.
+  it("refetches when the connection reopens after an error (reconnect recovery)", () => {
+    const onStateChanged = vi.fn();
+    renderHook(() => useBoardEvents(onStateChanged));
+
+    const source = MockEventSource.instances[0];
+    source.onopen?.(new Event("open"));
+    onStateChanged.mockClear();
+
+    source.onerror?.(new Event("error"));
+    source.onopen?.(new Event("open"));
+
+    expect(onStateChanged).toHaveBeenCalledTimes(2);
+  });
+
+  it("refetches only once across repeated errors while the server stays down", () => {
+    const onStateChanged = vi.fn();
+    renderHook(() => useBoardEvents(onStateChanged));
+
+    const source = MockEventSource.instances[0];
+    source.onopen?.(new Event("open"));
+    onStateChanged.mockClear();
+
+    // EventSource retries by itself; each failed attempt fires onerror. The
+    // hook must not turn that retry loop into a refetch loop.
+    source.onerror?.(new Event("error"));
+    source.onerror?.(new Event("error"));
+    source.onerror?.(new Event("error"));
+
+    expect(onStateChanged).toHaveBeenCalledTimes(1);
   });
 
   it("closes the connection on unmount", () => {

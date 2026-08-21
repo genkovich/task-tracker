@@ -26,6 +26,23 @@ function useBoardEventsAt(url: string, onStateChanged: () => void): void {
     const handleStateChanged = () => onStateChanged();
     source.addEventListener("board.state_changed", handleStateChanged);
 
+    // Reconnect recovery (contracts/events.md "Retry / reconnect"): the
+    // browser retries the connection itself; events missed while disconnected
+    // are recovered by a fresh GET. Refetch on every (re)open, and once per
+    // outage on error — EventSource keeps firing onerror while the server is
+    // down, and that retry loop must not become a refetch loop.
+    let refetchedOnError = false;
+    source.onopen = () => {
+      refetchedOnError = false;
+      onStateChanged();
+    };
+    source.onerror = () => {
+      if (!refetchedOnError) {
+        refetchedOnError = true;
+        onStateChanged();
+      }
+    };
+
     return () => {
       source.removeEventListener("board.state_changed", handleStateChanged);
       source.close();
