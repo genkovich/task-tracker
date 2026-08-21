@@ -25,7 +25,7 @@ The public link is the feature's one authorization boundary (spec §6.1), and sp
 
 ## Considered options
 
-1. **Opaque random token + `disabled_at` flag** — a 128-bit random (or UUIDv4) token stored in a `public_links` row; the row carries a nullable `disabled_at` timestamp. Every request checks `disabled_at IS NULL` before serving the board.
+1. **Opaque random token + `disabled_at` flag** — a 128-bit `crypto/rand` value (or UUIDv4) token stored in a `public_links` row; the row carries a nullable `disabled_at` timestamp. Every request checks `disabled_at IS NULL` before serving the board. **Explicitly not** the repo's default `uuid.NewV7()` (used elsewhere for primary keys, e.g. `internal/modules/user/`) — v7 encodes a creation timestamp in its high bits, which would make the token's *age* inferable and weaken the unpredictability this ADR exists to provide.
 2. **Signed stateless token (JWT-style)** — the server issues a token whose validity is verified by signature alone, no database row, no per-request lookup.
 
 ## Decision outcome

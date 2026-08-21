@@ -43,13 +43,13 @@ target_surfaces: [backend-service, web-frontend]
 - Frontend feature-slice convention: `api/ model/ ui/` per slice under `web/src/features/`, no cross-slice imports — `web/CLAUDE.md`.
 
 **Organisational.**
-- Effort budget: size S (~1 week) — spec §1 decision override: Approach C's domain here is narrower than the idea-brief's general M estimate (no accounts, no history, free-text assignee).
+- Effort budget: size S (~1 week) — spec §1 decision override: Approach C's domain here is narrower than the idea-brief's general M estimate (no accounts, no history, free-text assignee). This budget explicitly includes ADR-0001's in-process SSE broadcaster + handler (§5) — a small addition (no new deployable, no new datastore), not a size-class change; see spec §1's second decision override for the traceability note on why the spec's original "no persistent connections" phrasing doesn't block this.
 - Deadline: the workshop date is not fixed yet (spec §8 open question, owner genkovich); once set it becomes a hard external deadline for §1 quality goal 3 (availability).
 - Team: repo owner, small crew.
 
 **Conventions.**
 - Error response shape `{"error":{"code":"domain.snake_case","message":"..."}}`, mapped from domain sentinel errors in `ports/errors.go` — `.claude/rules/go-errors.md`, `internal/platform/httputil/`.
-- All routes inherit the shared middleware stack (CORS, security headers, RequestID, Logger, Recoverer, 30 s request timeout, 1 MB body limit) — `internal/server/server.go`; §4/§8 below note the one route that needs a timeout exemption.
+- All routes inherit the shared middleware stack (CORS, security headers, RequestID, Logger, Recoverer, 30 s request timeout, 1 MB body limit, and a **60 req/min-per-IP rate limiter** — `httprate.Limit(60, time.Minute, WithKeyFuncs(clientIPKey))`) — `internal/server/server.go:139-152`, `.claude/rules/go-security.md`. §7/§8 below cover the exemptions the `tasks` routes need from this default.
 
 **Regulatory / external.**
 - Data classification: internal (spec §6.1) — board content is deliberately shown to a wider audience via the public link but not meant for search indexing or a long-term public archive.
@@ -111,6 +111,7 @@ Layered / hexagonal, matching the repo's existing module convention exactly (`do
 ```
 api/internal/modules/tasks/
 ├── domain/       <Card, PublicLink entities + sentinels: ErrCardNotFound, ErrNameRequired,
+│                  ErrCardFieldTooLong (name > 200 or assignee > 100 chars, spec §6 NFR),
 │                  ErrLinkNotFound, ErrLinkDisabled>
 ├── app/          <Service: CreateCard, UpdateCard, MoveCard, DeleteCard, GetBoard,
 │                  GenerateLink, DisableLink, ResolvePublicLink
@@ -209,7 +210,7 @@ A viewer opening an active link sees the board's live state immediately — neve
 
 Reuses the existing deployment unit end to end: GHCR images → VPS → Caddy auto-TLS, per the repo's existing `deploy/` + `.github/workflows/deploy.yml` — no new infrastructure, no new exposed port. The `tasks` module ships inside the same `api` binary and the board UI inside the same `web` SPA bundle already deployed today. This resolves spec §8 open question 1 ("where is the board hosted so the public link is stable from phones during the workshop?") — the answer is the same VPS the base-tpl already deploys to, behind the same Caddy TLS termination.
 
-One deployment-relevant addition from ADR-0001: the SSE route must be exempted from the shared 30 s request-timeout middleware (`internal/server/server.go`), since an SSE connection is meant to stay open for as long as the page is.
+Two deployment-relevant additions from ADR-0001: the SSE route must be exempted from the shared 30 s request-timeout middleware (`internal/server/server.go`), since an SSE connection is meant to stay open for as long as the page is; and the SSE route needs headroom in — or an exemption from — the shared 60 req/min-per-IP rate limiter (§2, §8), since a shared venue Wi-Fi's public IP could see a burst of *reconnects* (not steady polling) if the network drops and many open tabs' `EventSource` instances retry at once.
 
 **Monitoring:**
 - Reuse the existing `/metrics` Prometheus scrape + Grafana dashboard (`deploy/grafana/dashboards/`) — add a panel for open SSE-connection count before the workshop so a runaway client (e.g. a tab left open for days) is visible.
@@ -227,7 +228,10 @@ One deployment-relevant addition from ADR-0001: the SSE route must be exempted f
 | Authentication | none for board editing (deliberate — spec §3 Non-goals); the repo's Google OAuth/JWT stays unused by this module | spec.md §3, §6.1 |
 | Authorization | one boundary: possessing the public-link token grants read-only access; no token, no access. Editing itself is unauthenticated by design | ADR-0003, spec §6.1 |
 | Error handling | domain sentinel → `ports/errors.go` mapping → `{"error":{"code","message"}}` JSON, repo default | `.claude/rules/go-errors.md` |
-| ID strategy | repo default — UUID primary keys, consistent with the `user` module | `internal/modules/user/infra` |
+| ID strategy (table PKs) | repo default — time-ordered `uuid.NewV7()`, consistent with the `user` module | `internal/modules/user/app/app.go`, `api/CLAUDE.md` |
+| ID strategy (public-link token) | **deviates from the repo default** — `crypto/rand`-backed 128-bit random (or UUIDv4), never UUIDv7: v7 encodes a timestamp, which would make the token partly guessable and contradict AC-09's unpredictability requirement | ADR-0003 |
+| Rate limiting | inherits the repo's 60 req/min-per-IP default (§2); the SSE subscribe route needs headroom for reconnect bursts (§7) — exact exemption/limit shape is an implementation decision at `tasks`, not re-litigated here | §2, §7 |
+| Input validation | card name ≤ 200 chars, assignee ≤ 100 chars, checked on save — domain sentinel `ErrCardFieldTooLong` (§5) | spec §6 NFR "Обмеження довжини полів картки" |
 | Realtime transport | Server-Sent Events over a dedicated route, exempted from the shared 30 s request timeout; in-process pub/sub, single API instance for v1 | ADR-0001, §7 |
 | Internationalisation | N/A — single language UI text, no i18n framework introduced | — |
 | Observability | reuse existing request logging + `/metrics`; add an open-SSE-connection gauge (§7) | — |
@@ -252,7 +256,7 @@ ADR files live under `docs/features/tasks/adr/`.
 **QG-2. Interaction latency**
 - **When:** a team member releases a dragged card.
 - **Then:** the client-measured time from release to confirmed change is p95 ≤ 300 ms — per spec §6 NFR row "Latency p95 переміщення картки (drag) | ≤ 300 ms | клієнтський час від відпускання картки до підтвердженої зміни", and works by touch as well as by mouse per the same NFR table's "Touch-переміщення карток" row.
-- **How verify:** a load/latency test against the move-card endpoint measuring p95 response time under representative concurrent load, plus the manual touch-device smoke test spec §6 requires before the event.
+- **How verify:** primarily a client-side measurement — an automated or manual timing from the drag-release event to the UI reflecting the confirmed move, matching spec §6's own measurement definition ("клієнтський час від відпускання картки до підтвердженої зміни"); a server-side load/latency test against the move-card endpoint is a supporting signal only (it bounds the server's contribution to that client-measured number, it isn't the number itself). Plus the manual touch-device smoke test spec §6 requires before the event.
 
 **QG-3. Public-access correctness and availability**
 - **When:** a viewer opens a public link that is disabled or was never valid, versus one that's active and just changed by the team.
