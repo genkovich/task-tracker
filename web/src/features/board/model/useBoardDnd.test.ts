@@ -95,12 +95,14 @@ describe("useBoardDnd — syncs to fresh initialColumns without a remount (re2 #
       rejectMove(new Error("network error"));
     });
 
-    await waitFor(() => {
-      const todo = result.current.columns.find((c) => c.id === "col-todo")!;
-      const doing = result.current.columns.find((c) => c.id === "col-doing")!;
-      expect(todo.tasks.map((t) => t.id)).toEqual(["task-1"]);
-      expect(doing.tasks.map((t) => t.id)).toEqual([]);
-    });
+    // Wait for the rollback itself (it reports the error) before asserting,
+    // otherwise the snapshot BEFORE the rejection handler satisfies waitFor.
+    await waitFor(() => expect(mockShowApiError).toHaveBeenCalled());
+
+    const todo = result.current.columns.find((c) => c.id === "col-todo")!;
+    const doing = result.current.columns.find((c) => c.id === "col-doing")!;
+    expect(todo.tasks.map((t) => t.id)).toEqual(["task-1"]);
+    expect(doing.tasks.map((t) => t.id)).toEqual([]);
   });
 });
 
