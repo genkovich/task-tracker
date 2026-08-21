@@ -43,8 +43,9 @@ export function PublicLinkPanel() {
     }
   }
 
+  // Must match the viewer route in routes.ts (`b/:token`), not the API path.
   const publicUrl =
-    state.status === "active" ? `${window.location.origin}/public/${state.link.token}` : null;
+    state.status === "active" ? `${window.location.origin}/b/${state.link.token}` : null;
 
   return (
     <Popover>

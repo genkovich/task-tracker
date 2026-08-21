@@ -94,6 +94,22 @@ describe("PublicLinkPanel", () => {
     });
   });
 
+  // Review 2026-08-21 root D: the panel built `/public/{token}` while the
+  // viewer route (routes.ts) is `b/:token`, so every issued link landed on
+  // the 404 page (AC-07/AC-09 dead). Pin the URL's pathname to the real
+  // route — not merely that some URL rendered.
+  it("renders the issued link with the /b/<token> path, matching routes.ts", async () => {
+    const user = userEvent.setup();
+    mockIssue.mockResolvedValue(issuedLink);
+
+    render(<PublicLinkPanel />);
+    await openPanel(user);
+    await user.click(screen.getByRole("button", { name: /отримати лінк|get link/i }));
+
+    const urlText = (await screen.findByText(/opaque-token-abc123/)).textContent ?? "";
+    expect(new URL(urlText).pathname).toBe("/b/opaque-token-abc123");
+  });
+
   // AC-08 (US-06) happy path — spec.md §5: "team member відкликає цей лінк" ->
   // "система припиняє показувати стан board за цим лінком". DoD: "revoking from
   // the active-link state clears the panel back to no-link".
