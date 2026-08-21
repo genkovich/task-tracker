@@ -103,7 +103,9 @@ interface BoardColumnsProps {
  * reference in place, so a refetch is a plain rerender — never a remount
  * that would wipe typed quick-add text or an active drag. */
 function BoardColumns({ columns: initialColumns, onTaskClick, onTaskCreated }: BoardColumnsProps) {
-  const { columns, handleDrop } = useBoardDnd(initialColumns, { moveTask: boardApi.moveTask });
+  const { columns, drag, startDrag, moveDrag, endDrag, cancelDrag } = useBoardDnd(initialColumns, {
+    moveTask: boardApi.moveTask,
+  });
 
   return (
     <div className="flex-1 rounded-3xl sm:bg-white/[0.04] sm:p-5">
@@ -114,7 +116,12 @@ function BoardColumns({ columns: initialColumns, onTaskClick, onTaskCreated }: B
             column={column}
             isLeftmost={column.position === 0}
             onTaskClick={onTaskClick}
-            onDropTask={(taskId) => handleDrop(taskId, column.id)}
+            dragTaskId={drag?.taskId ?? null}
+            isDropTarget={drag !== null && drag.overColumnId === column.id}
+            onTaskDragStart={(task) => startDrag(task.id)}
+            onTaskDragMove={moveDrag}
+            onTaskDragEnd={endDrag}
+            onTaskDragCancel={cancelDrag}
             onTaskCreated={onTaskCreated}
           />
         ))}
