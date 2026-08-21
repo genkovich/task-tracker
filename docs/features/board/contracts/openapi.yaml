@@ -79,14 +79,19 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Task" }
+        "400":
+          $ref: "#/components/responses/ValidationBadRequest"
         "422":
-          description: Порожня назва task (AC-02)
+          description: >-
+            Порожня назва task (AC-02, `task.title_required`) або назва понад 200
+            символів (`task.title_too_long`)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
               example:
-                code: "task.title_required"
-                message: "task title is required"
+                error:
+                  code: "task.title_required"
+                  message: "task title is required"
         "429":
           description: >-
             Перевищено ліміт створення task (spec §6.1 abuse case — ≤30/хв з одного клієнта)
@@ -94,8 +99,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
               example:
-                code: "task.rate_limited"
-                message: "too many tasks created, slow down"
+                error:
+                  code: "task.rate_limited"
+                  message: "too many tasks created, slow down"
 
   /api/v1/tasks/{taskId}:
     parameters:
@@ -121,16 +127,21 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Task" }
+        "400":
+          $ref: "#/components/responses/ValidationBadRequest"
         "404":
           $ref: "#/components/responses/TaskNotFound"
         "422":
-          description: Порожня назва task (AC-02, застосовується й до редагування)
+          description: >-
+            Порожня назва task (AC-02, застосовується й до редагування,
+            `task.title_required`) або назва понад 200 символів (`task.title_too_long`)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
               example:
-                code: "task.title_required"
-                message: "task title is required"
+                error:
+                  code: "task.title_required"
+                  message: "task title is required"
     delete:
       summary: Видалити task (AC-06)
       operationId: deleteTask
@@ -138,6 +149,8 @@ paths:
       responses:
         "204":
           description: No Content
+        "400":
+          $ref: "#/components/responses/ValidationBadRequest"
         "404":
           $ref: "#/components/responses/TaskNotFound"
 
@@ -151,19 +164,12 @@ paths:
       summary: Перемістити task в іншу column (AC-04, AC-05, AC-05b)
       description: >-
         Останній запит, що дійшов до сервера, перемагає (last-write-wins, spec §6 NFR,
-        sad.md §6 Flow 2, AC-05b) — немає version/lock перевірки. Після успішного запису
-        сервер розсилає `board.state_changed` усім live-клієнтам (sad.md §6 Flow 1).
+        sad.md §6 Flow 2, AC-05b) — немає version/lock перевірки. Повтор того самого
+        запиту природно ідемпотентний (та сама task у тій самій column), тож окремого
+        Idempotency-Key механізму немає. Після успішного запису сервер розсилає
+        `board.state_changed` усім live-клієнтам (sad.md §6 Flow 1).
       operationId: moveTask
       security: []
-      parameters:
-        - in: header
-          name: Idempotency-Key
-          required: true
-          description: >-
-            Клієнтський ключ; сервер повертає результат першого виконання на повторний
-            запит з тим самим ключем (TTL 24h) — sad.md §6 Flow 1 показує асинхронного
-            учасника (SSE broadcast) саме на цьому переході.
-          schema: { type: string, format: uuid }
       requestBody:
         required: true
         content:
@@ -175,6 +181,8 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Task" }
+        "400":
+          $ref: "#/components/responses/ValidationBadRequest"
         "404":
           $ref: "#/components/responses/TaskNotFound"
         "422":
@@ -186,8 +194,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
               example:
-                code: "board.column_not_found"
-                message: "target column does not exist"
+                error:
+                  code: "board.column_not_found"
+                  message: "target column does not exist"
 
   /api/v1/board/public-link:
     post:
@@ -209,8 +218,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
               example:
-                code: "board.link_already_active"
-                message: "an active public link already exists — revoke it first"
+                error:
+                  code: "board.link_already_active"
+                  message: "an active public link already exists — revoke it first"
     delete:
       summary: Відкликати чинний public link (AC-08)
       description: >-
@@ -227,8 +237,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
               example:
-                code: "board.link_not_found"
-                message: "no active public link to revoke"
+                error:
+                  code: "board.link_not_found"
+                  message: "no active public link to revoke"
 
   # ---------------------------------------------------------------------------
   # Public viewer — доступ лише за токеном, read-only (AC-09, AC-10, AC-11).
@@ -278,14 +289,36 @@ paths:
 
 components:
   responses:
+    ValidationBadRequest:
+      description: >-
+        Синтаксично невалідний запит — тіло, що не парситься як JSON
+        (`validation.invalid_body`), або `taskId` у шляху, що не є UUID
+        (`validation.invalid_task_id`). Відмінність від 422: тут запит не вдалося
+        навіть прочитати, 422 — прочитали, але домен відхилив значення.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            invalid_body:
+              value:
+                error:
+                  code: "validation.invalid_body"
+                  message: "invalid request body"
+            invalid_task_id:
+              value:
+                error:
+                  code: "validation.invalid_task_id"
+                  message: "invalid task id"
+
     TaskNotFound:
       description: Task не знайдено
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
           example:
-            code: "task.not_found"
-            message: "task not found"
+            error:
+              code: "task.not_found"
+              message: "task not found"
 
     PublicLinkInvalid:
       description: Токен недійсний або відкликаний (AC-11)
@@ -293,24 +326,31 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
           example:
-            code: "board.link_invalid"
-            message: "this link is no longer available"
+            error:
+              code: "board.link_invalid"
+              message: "this link is no longer available"
 
   schemas:
-    # Unified error envelope — {code, message, details?}. `code` = neutral `module.error_name`.
+    # Unified error envelope — платформенний httputil.WriteError загортає тіло помилки
+    # у вкладений конверт {"error": {code, message}}. `code` = neutral `module.error_name`.
     Error:
       type: object
-      required: [code, message]
+      required: [error]
       additionalProperties: false
       properties:
-        code:
-          type: string
-          pattern: "^[a-z_]+\\.[a-z_]+$"
-          example: "task.not_found"
-        message: { type: string }
-        details:
+        error:
           type: object
-          description: optional structured context (e.g. conflicting id)
+          required: [code, message]
+          additionalProperties: false
+          properties:
+            code:
+              type: string
+              pattern: "^[a-z_]+\\.[a-z_]+$"
+              example: "task.not_found"
+            message: { type: string }
+            details:
+              type: object
+              description: optional structured context (e.g. conflicting id)
 
     # data-model.md → columns (id, name, position) + nested tasks for board rendering.
     Column:
@@ -348,6 +388,9 @@ components:
 
     TaskUpdate:
       type: object
+      # PATCH семантично, але title обов'язковий: сервер валідовує його на кожному
+      # редагуванні (AC-02 застосовується й до edit) — запит без title відхиляється.
+      required: [title]
       additionalProperties: false
       properties:
         title: { type: string, minLength: 1, maxLength: 200 }

@@ -277,8 +277,7 @@ func TestTaskHandler_MoveTask_HappyPath(t *testing.T) {
 	}
 	require.NotEqual(t, uuid.Nil, targetColumnID)
 
-	headers := map[string]string{"Idempotency-Key": uuid.NewString()}
-	resp := f.do(t, http.MethodPost, "/api/v1/tasks/"+task.ID+"/move", map[string]any{"column_id": targetColumnID.String()}, headers)
+	resp := f.do(t, http.MethodPost, "/api/v1/tasks/"+task.ID+"/move", map[string]any{"column_id": targetColumnID.String()}, nil)
 	defer resp.Body.Close()
 	require.Equalf(t, http.StatusOK, resp.StatusCode, "POST /api/v1/tasks/{id}/move (AC-04) status")
 
@@ -298,8 +297,7 @@ func TestTaskHandler_MoveTask_UnknownColumn(t *testing.T) {
 	f := setupT7TaskHandlerServer(t)
 	task := f.createTask(t, "Stay put")
 
-	headers := map[string]string{"Idempotency-Key": uuid.NewString()}
-	resp := f.do(t, http.MethodPost, "/api/v1/tasks/"+task.ID+"/move", map[string]any{"column_id": uuid.NewString()}, headers)
+	resp := f.do(t, http.MethodPost, "/api/v1/tasks/"+task.ID+"/move", map[string]any{"column_id": uuid.NewString()}, nil)
 	defer resp.Body.Close()
 	require.Equalf(t, http.StatusUnprocessableEntity, resp.StatusCode, "POST /api/v1/tasks/{id}/move to unknown column (AC-05) status")
 
@@ -326,8 +324,7 @@ func TestTaskHandler_MoveTask_UnknownColumn(t *testing.T) {
 func TestTaskHandler_MoveTask_UnknownTask(t *testing.T) {
 	f := setupT7TaskHandlerServer(t)
 
-	headers := map[string]string{"Idempotency-Key": uuid.NewString()}
-	resp := f.do(t, http.MethodPost, "/api/v1/tasks/"+uuid.NewString()+"/move", map[string]any{"column_id": uuid.NewString()}, headers)
+	resp := f.do(t, http.MethodPost, "/api/v1/tasks/"+uuid.NewString()+"/move", map[string]any{"column_id": uuid.NewString()}, nil)
 	defer resp.Body.Close()
 	require.Equalf(t, http.StatusNotFound, resp.StatusCode, "POST /api/v1/tasks/{unknown-id}/move status")
 
