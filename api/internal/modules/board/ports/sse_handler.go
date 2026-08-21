@@ -87,6 +87,15 @@ func (h *SSEHandler) handleStreamPublicBoardEvents(w http.ResponseWriter, r *htt
 	events, unregister := h.registry.Subscribe(token)
 	defer unregister()
 
+	// Re-check after registering: a revoke landing between the validation
+	// above and Subscribe finds no bucket to close (CloseToken is a no-op on
+	// an unknown token), which would leave this fresh connection immortal —
+	// the heartbeat keeps it alive and no later CloseToken ever sees it.
+	if _, err := h.stateService.GetPublicBoardState(r.Context(), token); err != nil {
+		httputil.WriteError(w, mapPublicError(err))
+		return
+	}
+
 	stream(w, r, events)
 }
 
