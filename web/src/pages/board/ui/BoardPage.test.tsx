@@ -161,6 +161,54 @@ describe("BoardPage — refetch failure keeps the stale board (re2 #2)", () => {
   });
 });
 
+// Re-review 2026-08-21 re2 #3: every broadcast used to remount the whole
+// columns subtree via key={version}, wiping typed quick-add text and any
+// active drag. Fresh server state must arrive through a plain rerender.
+describe("BoardPage — refetch must not remount the board subtree (re2 #3)", () => {
+  it("keeps typed quick-add text when an SSE refetch delivers fresh columns", async () => {
+    const freshBoard = {
+      ...board,
+      columns: [
+        {
+          ...board.columns[0],
+          tasks: [
+            ...board.columns[0].tasks,
+            {
+              id: "task-2",
+              column_id: "col-1",
+              title: "From another tab",
+              assignee: null,
+              created_at: "2026-08-20T00:05:00Z",
+              updated_at: "2026-08-20T00:05:00Z",
+            },
+          ],
+        },
+        board.columns[1],
+      ],
+    };
+    mockGetBoard.mockResolvedValueOnce(board);
+    mockGetBoard.mockResolvedValueOnce(freshBoard);
+    const user = userEvent.setup();
+
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText("To do")).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByPlaceholderText("Назва task"), "draft in progress");
+
+    const onBoardEvent = vi.mocked(useBoardEvents).mock.calls[0][0] as () => void;
+    await act(async () => {
+      onBoardEvent();
+    });
+
+    // The fresh server state rendered...
+    expect(await screen.findByText("From another tab")).toBeInTheDocument();
+    // ...and the in-progress quick-add draft survived — no remount.
+    expect(screen.getByPlaceholderText("Назва task")).toHaveValue("draft in progress");
+  });
+});
+
 describe("BoardPage — composes the team-editor board (SCR-01)", () => {
   // DoD: page composes T15's columns/cards/quick-add — sad.md §5 pages/board
   // "composes features/board". Fetching goes through boardApi.getBoard, and

@@ -20,7 +20,6 @@ export const meta: Route.MetaFunction = () => [{ title: "Дошка — Task Tra
 export default function BoardPage() {
   const [board, setBoard] = useState<BoardState | null>(null);
   const [failed, setFailed] = useState(false);
-  const [version, setVersion] = useState(0);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const boardRef = useRef<BoardState | null>(null);
 
@@ -31,7 +30,6 @@ export default function BoardPage() {
         boardRef.current = state;
         setBoard(state);
         setFailed(false);
-        setVersion((v) => v + 1);
       })
       .catch((err: unknown) => {
         // The full error screen is for the initial load only; a failed
@@ -74,7 +72,6 @@ export default function BoardPage() {
       </div>
 
       <BoardColumns
-        key={version}
         columns={board.columns}
         onTaskClick={(task) => setSelectedTask(task)}
         onTaskCreated={refetch}
@@ -108,10 +105,9 @@ interface BoardColumnsProps {
 }
 
 /** Owns the drag-and-drop wiring (T14's `useBoardDnd`) for the currently
- * loaded columns; remounted (via the parent's `key`) whenever the board is
- * refetched, because `useBoardDnd` seeds its optimistic state from
- * `initialColumns` once — the remount is what syncs it to fresh server
- * state. */
+ * loaded columns; `useBoardDnd` adopts each fresh `initialColumns`
+ * reference in place, so a refetch is a plain rerender — never a remount
+ * that would wipe typed quick-add text or an active drag. */
 function BoardColumns({ columns: initialColumns, onTaskClick, onTaskCreated }: BoardColumnsProps) {
   const { columns, handleDrop } = useBoardDnd(initialColumns, { moveTask: boardApi.moveTask });
 
