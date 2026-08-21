@@ -1,0 +1,199 @@
+{
+  "slug": "tasks",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Promote staged cards + public_links migrations",
+      "layer": "migration",
+      "deps": [],
+      "acs": [],
+      "dod": "the promoted migration pair applies and reverts cleanly against a local Postgres",
+      "files_hint": [
+        "docs/features/tasks/migrations/01_create_cards.up.sql",
+        "docs/features/tasks/migrations/01_create_cards.down.sql",
+        "docs/features/tasks/migrations/02_create_public_links.up.sql",
+        "docs/features/tasks/migrations/02_create_public_links.down.sql"
+      ],
+      "owner": "genkovich",
+      "estimate": "S"
+    },
+    {
+      "id": "T2",
+      "title": "Card + PublicLink domain entities and sentinel errors",
+      "layer": "domain",
+      "deps": [],
+      "acs": ["AC-03", "AC-14"],
+      "dod": "unit tests cover ErrNameRequired (empty/whitespace-only name) and the 200/100-char length sentinels for both create and update paths",
+      "files_hint": ["api/internal/modules/tasks/domain/"],
+      "owner": "genkovich",
+      "estimate": "S"
+    },
+    {
+      "id": "T3",
+      "title": "PostgresCardRepository (CRUD + move)",
+      "layer": "infra",
+      "deps": ["T1", "T2"],
+      "acs": ["AC-01", "AC-02", "AC-10", "AC-13"],
+      "dod": "integration tests (testcontainers) cover create/list/update/move/delete against a real Postgres instance",
+      "files_hint": ["api/internal/modules/tasks/infra/card_repository.go"],
+      "owner": "genkovich",
+      "estimate": "M"
+    },
+    {
+      "id": "T4",
+      "title": "PostgresPublicLinkRepository (generate/disable/resolve)",
+      "layer": "infra",
+      "deps": ["T1", "T2"],
+      "acs": ["AC-04", "AC-09"],
+      "dod": "integration tests cover generate (auto-disabling a prior active link), resolve-by-token, and disable",
+      "files_hint": ["api/internal/modules/tasks/infra/public_link_repository.go"],
+      "owner": "genkovich",
+      "estimate": "S"
+    },
+    {
+      "id": "T5",
+      "title": "Card service (create/update/move/delete/get-board)",
+      "layer": "app",
+      "deps": ["T2"],
+      "acs": ["AC-01", "AC-02", "AC-07", "AC-10", "AC-11", "AC-13", "AC-14", "AC-15"],
+      "dod": "unit tests (against a fake CardRepository) cover last-write-wins overwrite semantics (ADR-0002) and the delete-wins-over-concurrent-move race (AC-15)",
+      "files_hint": ["api/internal/modules/tasks/app/card_service.go"],
+      "owner": "genkovich",
+      "estimate": "M"
+    },
+    {
+      "id": "T6",
+      "title": "PublicLink service + in-process board-event broadcaster",
+      "layer": "app",
+      "deps": ["T2"],
+      "acs": ["AC-04", "AC-09"],
+      "dod": "unit tests cover generate-replaces-active-link, disable-is-idempotent, and Broadcaster fan-out to N subscriber channels",
+      "files_hint": [
+        "api/internal/modules/tasks/app/public_link_service.go",
+        "api/internal/modules/tasks/app/broadcaster.go"
+      ],
+      "owner": "genkovich",
+      "estimate": "M"
+    },
+    {
+      "id": "T7",
+      "title": "Card HTTP handlers (list/create/update/move/delete)",
+      "layer": "ports",
+      "deps": ["T3", "T5"],
+      "acs": ["AC-01", "AC-02", "AC-03", "AC-07", "AC-10", "AC-11", "AC-13", "AC-14"],
+      "dod": "handler tests assert the exact status/body contract in contracts/openapi.yaml for every listed AC, no auth middleware attached to any route (spec §3 Non-goals)",
+      "files_hint": ["api/internal/modules/tasks/ports/card_handler.go"],
+      "owner": "genkovich",
+      "estimate": "M"
+    },
+    {
+      "id": "T8",
+      "title": "Public-link HTTP handlers (generate/disable/get-active)",
+      "layer": "ports",
+      "deps": ["T4", "T6"],
+      "acs": ["AC-04", "AC-09"],
+      "dod": "handler tests assert the exact status/body contract for generatePublicLink / disablePublicLink / getActivePublicLink",
+      "files_hint": ["api/internal/modules/tasks/ports/public_link_handler.go"],
+      "owner": "genkovich",
+      "estimate": "S"
+    },
+    {
+      "id": "T9",
+      "title": "SSE broadcast handlers + public board resolve endpoint",
+      "layer": "ports",
+      "deps": ["T4", "T6", "T8"],
+      "acs": ["AC-05", "AC-06", "AC-08", "AC-12"],
+      "dod": "integration test asserts a disabled/never-valid token returns the byte-identical common.not_found body as an unmatched route (AC-05), and an SSE subscriber receives a pushed event within the freshness NFR window",
+      "files_hint": [
+        "api/internal/modules/tasks/ports/sse_handler.go",
+        "api/internal/modules/tasks/ports/public_board_handler.go"
+      ],
+      "owner": "genkovich",
+      "estimate": "M"
+    },
+    {
+      "id": "T10",
+      "title": "Wire the tasks module: routes, rate-limit + timeout exemptions",
+      "layer": "wiring",
+      "deps": ["T7", "T8", "T9"],
+      "acs": [],
+      "dod": "tasks.New(db) is registered in cmd/api/main.go via server.New(...), all card + public-link + SSE routes reachable with security: [], the two SSE routes are exempted from the 30s request timeout (sad.md §7/§8)",
+      "files_hint": [
+        "api/internal/modules/tasks/tasks.go",
+        "api/cmd/api/main.go",
+        "api/internal/server/server.go"
+      ],
+      "owner": "genkovich",
+      "estimate": "M"
+    },
+    {
+      "id": "T11",
+      "title": "Backend integration tests: concurrency + end-to-end flows",
+      "layer": "tests",
+      "deps": ["T10"],
+      "acs": ["AC-07", "AC-15"],
+      "dod": "testcontainers-based test fires two near-simultaneous moves on the same card and asserts the last-processed one wins; a second test fires a delete racing a move and asserts the delete wins",
+      "files_hint": ["api/internal/modules/tasks/ports/tasks_integration_test.go"],
+      "owner": "genkovich",
+      "estimate": "M"
+    },
+    {
+      "id": "T12",
+      "title": "SCR-01 Board page — loading/empty/default/error + drag",
+      "layer": "ui",
+      "deps": [],
+      "acs": ["AC-01", "AC-10", "AC-11"],
+      "dod": "component tests cover the loading/empty/default/error states from screens.md SCR-01, plus a drag-and-drop test asserting a failed move visually reverts (AC-11)",
+      "files_hint": [
+        "web/src/features/board-view/",
+        "web/src/shared/ui/skeleton.tsx"
+      ],
+      "owner": "genkovich",
+      "estimate": "M"
+    },
+    {
+      "id": "T13",
+      "title": "SCR-01 Add/edit card dialog",
+      "layer": "ui",
+      "deps": ["T12"],
+      "acs": ["AC-02", "AC-03", "AC-13", "AC-14"],
+      "dod": "component tests cover add-card and edit-card, both the default and the empty/whitespace-name validation state, from screens.md SCR-01",
+      "files_hint": ["web/src/features/card-form/"],
+      "owner": "genkovich",
+      "estimate": "S"
+    },
+    {
+      "id": "T14",
+      "title": "SCR-01 Public-link control (none/active/generating/disabling)",
+      "layer": "ui",
+      "deps": ["T12"],
+      "acs": ["AC-04", "AC-09"],
+      "dod": "component tests cover the none/active/generating/disabling states from screens.md SCR-01",
+      "files_hint": ["web/src/features/public-link-control/"],
+      "owner": "genkovich",
+      "estimate": "S"
+    },
+    {
+      "id": "T15",
+      "title": "SCR-02/SCR-03 Public viewer page + not-found reuse",
+      "layer": "ui",
+      "deps": [],
+      "acs": ["AC-05", "AC-06", "AC-08", "AC-12"],
+      "dod": "component tests cover SCR-02's loading/empty/default/error states (read-only, no edit affordances per AC-06) and assert an SSE link-disabled event or a 404 navigates to the existing NotFoundPage route (SCR-03) without a manual refresh",
+      "files_hint": ["web/src/pages/public-board/", "web/src/routes.ts"],
+      "owner": "genkovich",
+      "estimate": "M"
+    },
+    {
+      "id": "T16",
+      "title": "End-to-end smoke test: full board lifecycle",
+      "layer": "tests",
+      "deps": ["T10", "T13", "T14", "T15"],
+      "acs": ["AC-01", "AC-02", "AC-04", "AC-05", "AC-08", "AC-09", "AC-10", "AC-12", "AC-13"],
+      "dod": "a Playwright smoke test drives: add a card, drag it, edit it, generate a public link, open it in a second context and see the card, disable the link, confirm the second context auto-navigates to not-found, delete the card",
+      "files_hint": ["web/e2e/tasks-board.smoke.spec.ts"],
+      "owner": "genkovich",
+      "estimate": "M"
+    }
+  ]
+}
