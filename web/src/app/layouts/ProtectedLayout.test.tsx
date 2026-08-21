@@ -40,12 +40,12 @@ const baseAuth = {
 
 function renderLayout() {
   return render(
-    <MemoryRouter initialEntries={["/dashboard"]}>
+    <MemoryRouter initialEntries={["/board"]}>
       <Routes>
         <Route element={<ProtectedLayout />}>
-          <Route path="/dashboard" element={<div>Dashboard content</div>} />
+          <Route path="/board" element={<div>Dashboard content</div>} />
         </Route>
-        <Route path="/login" element={<div>Login page</div>} />
+        <Route path="/" element={<div>Login page</div>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -60,7 +60,7 @@ describe("ProtectedLayout", () => {
     expect(screen.queryByText("Login page")).not.toBeInTheDocument();
   });
 
-  it("redirects to /login when unauthenticated", () => {
+  it("redirects to / when unauthenticated", () => {
     mockedUseAuth.mockReturnValue({ ...baseAuth, user: null });
     renderLayout();
 

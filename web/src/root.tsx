@@ -94,7 +94,7 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
         <p className="mt-3 text-sm text-muted-foreground">{details}</p>
         <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Button asChild>
-            <Link to="/dashboard">Go to dashboard</Link>
+            <Link to="/board">Go to the board</Link>
           </Button>
           <Button asChild variant="outline">
             <Link to="/">Back home</Link>

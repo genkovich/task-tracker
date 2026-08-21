@@ -1,26 +1,23 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Navigation", () => {
-  // routes.ts made BoardPage the index route — home is the board now, and
-  // the Google login button lives on /login (review root J).
-  test("home mounts the board page, not the login screen", async ({ page }) => {
+  // Routing settled at merge: / is the guest landing with the single Google
+  // button; the board lives on /board behind the auth gate.
+  test("home is the guest landing with the Google button", async ({ page }) => {
     await page.goto("/");
-    // Whichever SCR-01 state the board settles in (loaded «Дошка команди» or
-    // the error block «Не вдалося завантажити дошку» when the API is down),
-    // the board wording is visible and the login button is gone from /.
-    await expect(page.getByText(/дошк/i).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: /sign in with google/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /sign in with google/i })).toBeVisible();
   });
 
-  test("login page shows the bare Google login button", async ({ page }) => {
-    await page.goto("/login");
+  test("the board route bounces guests back to the landing", async ({ page }) => {
+    await page.goto("/board");
+    await expect(page).toHaveURL(/\/$/);
     await expect(page.getByRole("button", { name: /sign in with google/i })).toBeVisible();
   });
 
   test("404 page for unknown routes", async ({ page }) => {
     await page.goto("/nonexistent-route-xyz");
     await expect(page.getByRole("heading", { name: /page not found/i })).toBeVisible();
-    await expect(page.getByRole("link", { name: /dashboard/i })).toBeVisible();
+    await expect(page.getByRole("link", { name: /board/i })).toBeVisible();
   });
 
   test("home page has a title", async ({ page }) => {
@@ -29,13 +26,13 @@ test.describe("Navigation", () => {
     expect(title).toContain("Task Tracker");
   });
 
-  test("login page has no console errors (regression: React #418)", async ({ page }) => {
+  test("landing has no console errors (regression: React #418)", async ({ page }) => {
     const errors: string[] = [];
     page.on("console", (msg) => {
       if (msg.type() === "error") errors.push(msg.text());
     });
 
-    await page.goto("/login");
+    await page.goto("/");
     await page.waitForLoadState("networkidle");
 
     expect(errors, errors.join("\n")).toEqual([]);

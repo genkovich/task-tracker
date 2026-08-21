@@ -40,7 +40,7 @@ afterEach(() => {
 });
 
 describe("AuthCallbackPage", () => {
-  it("exchanges code and redirects to dashboard on success", async () => {
+  it("exchanges code and redirects to the board on success", async () => {
     currentSearchParams = new URLSearchParams("code=test-auth-code-123");
 
     const mockResponse = {
@@ -81,13 +81,13 @@ describe("AuthCallbackPage", () => {
     });
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith("/dashboard", {
+      expect(mockNavigate).toHaveBeenCalledWith("/board", {
         replace: true,
       });
     });
   });
 
-  it("redirects to login when no code in query params", async () => {
+  it("redirects to the landing when no code in query params", async () => {
     currentSearchParams = new URLSearchParams();
 
     render(
@@ -97,11 +97,11 @@ describe("AuthCallbackPage", () => {
     );
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith("/login", { replace: true });
+      expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
     });
   });
 
-  it("redirects to login when exchange fails", async () => {
+  it("redirects to the landing when exchange fails", async () => {
     currentSearchParams = new URLSearchParams("code=test-auth-code-123");
 
     const mockResponse = {
@@ -121,11 +121,11 @@ describe("AuthCallbackPage", () => {
     );
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith("/login", { replace: true });
+      expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
     });
   });
 
-  it("redirects to login when fetchUser fails after exchange", async () => {
+  it("redirects to the landing when fetchUser fails after exchange", async () => {
     currentSearchParams = new URLSearchParams("code=test-auth-code-123");
 
     const mockResponse = {
@@ -147,7 +147,7 @@ describe("AuthCallbackPage", () => {
     );
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith("/login", { replace: true });
+      expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
     });
   });
 });
