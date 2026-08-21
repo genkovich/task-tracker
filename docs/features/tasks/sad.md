@@ -206,6 +206,149 @@ sequenceDiagram
 
 A viewer opening an active link sees the board's live state immediately — never a stale snapshot (AC-08) — and stays subscribed to further changes for as long as the tab is open, including the team disabling the link itself, which the same subscription delivers as a switch to not-found without a manual refresh (AC-12). A disabled or never-valid link resolves to the same generic not-found either way (AC-05), and the active board never exposes an edit control to the viewer (AC-06).
 
+### Flow: Add a new card (US-02, AC-02, AC-03)
+
+```mermaid
+sequenceDiagram
+    actor User as Team member
+    participant UI as <ui>
+    participant Service as <service>
+    participant Store as <data-store>
+
+    User->>UI: opens the add-card form, enters a name and optional assignee, saves
+    UI->>Service: create card
+    alt name provided
+        Service->>Store: persist new card in the To Do column
+        Store-->>Service: ok
+        Service-->>UI: card created
+        UI-->>User: new card appears in To Do, visible to everyone who opens or refreshes
+    else name empty or spaces only
+        Service-->>UI: validation error — name required
+        UI-->>User: save blocked, name-required message shown, form stays open
+    end
+```
+
+A team member opens the add-card form, enters a name and an optional assignee, and saves. If a name was provided, the service persists the new card into the To Do column and everyone who opens or refreshes the board sees it (AC-02). If the name is empty or whitespace-only, the service rejects the save and the UI keeps the form open with a name-required message (AC-03).
+
+### Flow: Generate the public link (US-03, AC-09)
+
+```mermaid
+sequenceDiagram
+    actor User as Team member
+    participant UI as <ui>
+    participant Service as <service>
+    participant Store as <data-store>
+
+    User->>UI: requests a public link (none currently active)
+    UI->>Service: generate public link
+    Service->>Store: persist a new unpredictable link token
+    Store-->>Service: ok
+    Service-->>UI: link token
+    UI-->>User: shows the new link, valid until disabled
+```
+
+With no active link, a team member requests one; the service generates and persists a new unpredictable token and the UI shows it to the team member, valid until someone disables it (AC-09).
+
+### Flow: Disable the public link (US-05, AC-04)
+
+```mermaid
+sequenceDiagram
+    actor User as Team member
+    participant UI as <ui>
+    participant Service as <service>
+    participant Store as <data-store>
+
+    User->>UI: disables the active public link
+    UI->>Service: disable public link
+    Service->>Store: mark the link disabled
+    Store-->>Service: ok
+    Service-->>UI: link disabled
+    Service->>Service: broadcast link-disabled event (fans out to every open board page)
+    UI-->>User: link is now shown as inactive
+    Note over Service,Store: any request for this link's token now resolves not-found (see Flow: Переглянути борду за лінком)
+```
+
+A team member disables the active link; the service marks it disabled and broadcasts the change immediately (AC-04) — this is the event the viewer-side flow's open subscription picks up to switch to not-found without a manual refresh (AC-12).
+
+### Flow: Delete a card (US-06, AC-10, AC-15)
+
+```mermaid
+sequenceDiagram
+    actor User as Team member
+    participant UI as <ui>
+    participant Service as <service>
+    participant Store as <data-store>
+
+    User->>UI: deletes a card
+    UI->>Service: delete card
+    Service->>Store: remove the card
+    Store-->>Service: ok
+    Service-->>UI: card deleted
+    Service->>Service: broadcast card-deleted event
+    UI-->>User: card is gone, visible to everyone who opens or refreshes
+    Note over Service,Store: a concurrent drag on the same card arriving after<br/>the delete finds nothing to update — it changes nothing
+```
+
+A team member deletes a card; the service removes it and everyone who opens or refreshes the board sees it gone (AC-10). If another member's drag on that same card reaches the service after the delete, there's nothing left to update, so it changes nothing on the board — the delete wins (AC-15).
+
+### Flow: Edit a card (US-07, AC-13, AC-14)
+
+```mermaid
+sequenceDiagram
+    actor User as Team member
+    participant UI as <ui>
+    participant Service as <service>
+    participant Store as <data-store>
+
+    User->>UI: opens an existing card, changes name and/or assignee, saves
+    UI->>Service: update card
+    alt name provided
+        Service->>Store: persist the updated name/assignee
+        Store-->>Service: ok
+        Service-->>UI: card updated
+        UI-->>User: change visible to everyone who opens or refreshes
+    else name empty or spaces only
+        Service-->>UI: validation error — name required
+        UI-->>User: save blocked, name-required message shown, form stays open
+    end
+```
+
+A team member opens an existing card, changes its name and/or assignee, and saves. If a name is present, the update persists and everyone who opens or refreshes the board sees it (AC-13); if the name is empty or whitespace-only, the save is blocked with a name-required message and the form stays open (AC-14).
+
+### Coverage
+
+**Use-case coverage (§4 user stories):**
+
+| User story | Flow(s) |
+|---|---|
+| US-01 Drag a card | Flow: Drag a card to another column |
+| US-02 Add a new card | Flow: Add a new card |
+| US-03 Get a public link | Flow: Generate the public link |
+| US-04 View the board via the link | Flow: Viewer opens the public link |
+| US-05 Disable the public link | Flow: Disable the public link |
+| US-06 Delete a card | Flow: Delete a card |
+| US-07 Edit a card | Flow: Edit a card |
+
+**AC coverage (§5 acceptance criteria):**
+
+| AC | Shown by |
+|---|---|
+| AC-01 | Flow: Drag a card — happy path |
+| AC-02 | Flow: Add a new card — happy branch |
+| AC-03 | Flow: Add a new card — error branch |
+| AC-04 | Flow: Disable the public link |
+| AC-05 | Flow: Viewer opens the public link — disabled/never-valid branch |
+| AC-06 | Non-runtime — the viewer UI simply never renders an edit control; nothing to sequence |
+| AC-07 | Flow: Drag a card — concurrent-move note |
+| AC-08 | Flow: Viewer opens the public link — active-link branch |
+| AC-09 | Flow: Generate the public link |
+| AC-10 | Flow: Delete a card — happy path |
+| AC-11 | Flow: Drag a card — save-failure branch |
+| AC-12 | Flow: Viewer opens the public link — SSE subscription loop, fed by Flow: Disable the public link |
+| AC-13 | Flow: Edit a card — happy branch |
+| AC-14 | Flow: Edit a card — error branch |
+| AC-15 | Flow: Delete a card — concurrent-delete-vs-drag note |
+
 ## 7. Deployment view
 
 Reuses the existing deployment unit end to end: GHCR images → VPS → Caddy auto-TLS, per the repo's existing `deploy/` + `.github/workflows/deploy.yml` — no new infrastructure, no new exposed port. The `tasks` module ships inside the same `api` binary and the board UI inside the same `web` SPA bundle already deployed today. This resolves spec §8 open question 1 ("where is the board hosted so the public link is stable from phones during the workshop?") — the answer is the same VPS the base-tpl already deploys to, behind the same Caddy TLS termination.
