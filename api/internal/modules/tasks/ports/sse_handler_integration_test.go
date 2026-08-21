@@ -85,9 +85,9 @@ func readOneSSELine(t *testing.T, r *bufio.Reader, timeout time.Duration) string
 }
 
 // TestPublicBoard_DisabledLink_ByteIdenticalNotFound covers AC-05: the
-// response for a disabled/never-valid token must be byte-identical to the
-// platform's generic not-found for any unmatched route.
-func TestPublicBoard_DisabledLink_ByteIdenticalNotFound(t *testing.T) {
+// response for a never-valid token must be byte-identical to the platform's
+// generic not-found for any unmatched route.
+func TestPublicBoard_NeverValidToken_ByteIdenticalNotFound(t *testing.T) {
 	env := setupFullServer(t)
 
 	genericResp, err := http.Get(env.ts.URL + "/this/route/does/not/exist")
@@ -95,6 +95,29 @@ func TestPublicBoard_DisabledLink_ByteIdenticalNotFound(t *testing.T) {
 	genericBody := readAll(t, genericResp)
 
 	tokenResp, err := http.Get(env.ts.URL + "/api/v1/public/boards/never-existed")
+	require.NoError(t, err)
+	tokenBody := readAll(t, tokenResp)
+
+	require.Equal(t, genericResp.StatusCode, tokenResp.StatusCode)
+	require.Equal(t, genericResp.Header.Get("Content-Type"), tokenResp.Header.Get("Content-Type"))
+	require.Equal(t, genericBody, tokenBody)
+}
+
+// TestPublicBoard_DisabledToken_ByteIdenticalNotFound covers the other half
+// of AC-05: a token that WAS valid, then got disabled, must resolve exactly
+// like the never-valid case above — never a signal that it once worked.
+func TestPublicBoard_DisabledToken_ByteIdenticalNotFound(t *testing.T) {
+	env := setupFullServer(t)
+
+	link, err := env.linkSvc.GenerateLink(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, env.linkSvc.DisableLink(context.Background(), link.ID))
+
+	genericResp, err := http.Get(env.ts.URL + "/this/route/does/not/exist")
+	require.NoError(t, err)
+	genericBody := readAll(t, genericResp)
+
+	tokenResp, err := http.Get(env.ts.URL + "/api/v1/public/boards/" + link.Token)
 	require.NoError(t, err)
 	tokenBody := readAll(t, tokenResp)
 

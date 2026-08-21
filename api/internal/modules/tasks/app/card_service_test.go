@@ -3,6 +3,7 @@ package app_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,9 @@ func newFakeCardRepo() *fakeCardRepo {
 }
 
 func (f *fakeCardRepo) Create(_ context.Context, c *domain.Card) error {
+	now := time.Now()
+	c.CreatedAt = now
+	c.UpdatedAt = now
 	f.cards[c.ID] = *c
 	return nil
 }
@@ -108,9 +112,14 @@ func TestCardService_UpdateCard_NoVersionCheck(t *testing.T) {
 	created, err := svc.CreateCard(context.Background(), "original", nil)
 	require.NoError(t, err)
 
-	_, err = svc.UpdateCard(context.Background(), created.ID, "renamed", nil)
+	updated, err := svc.UpdateCard(context.Background(), created.ID, "renamed", nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, repo.updateCalls)
+
+	// The response must be a complete, contract-valid Card — a bug once let
+	// this ship as an empty column_status and a zero created_at.
+	require.Equal(t, domain.ColumnTodo, updated.ColumnStatus)
+	require.False(t, updated.CreatedAt.IsZero())
 }
 
 func TestCardService_MoveCard_Rejects_InvalidColumn(t *testing.T) {

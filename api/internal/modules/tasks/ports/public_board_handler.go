@@ -25,16 +25,24 @@ func NewPublicBoardHandler(cardService *app.CardService, linkService *app.Public
 	return &PublicBoardHandler{cardService: cardService, linkService: linkService, broadcaster: broadcaster}
 }
 
-func (h *PublicBoardHandler) RegisterRoutes(r chi.Router) {
-	r.Get("/public/boards/{token}", h.handleGet)
-}
+// RegisterRoutes is a no-op — both of this handler's routes are
+// high-traffic public routes, registered via RegisterHighTrafficRoutes
+// instead (many viewers behind a handful of shared IPs at once).
+func (h *PublicBoardHandler) RegisterRoutes(_ chi.Router) {}
 
-func (h *PublicBoardHandler) RegisterLongLivedRoutes(r chi.Router) {
+// RegisterHighTrafficRoutes registers both the plain read (timed) and the
+// SSE stream (not timed) under the server's higher-rate-limit subtree.
+func (h *PublicBoardHandler) RegisterHighTrafficRoutes(r chi.Router, timeoutMW func(http.Handler) http.Handler) {
+	r.With(timeoutMW).Get("/public/boards/{token}", h.handleGet)
 	r.Get("/public/boards/{token}/events", h.handleSubscribe)
 }
 
 func (h *PublicBoardHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
+
+	// Never a long-lived cache — spec §6.1: a disabled/stale board state
+	// must not linger reachable outside the team's control.
+	w.Header().Set("Cache-Control", "no-store")
 
 	if _, err := h.linkService.ResolvePublicLink(r.Context(), token); err != nil {
 		http.NotFound(w, r)
@@ -69,12 +77,14 @@ func (h *PublicBoardHandler) handleSubscribe(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Subscribe BEFORE flushing headers — see sse_handler.go's handleSubscribe
+	// for why (avoids losing an event fired right after the client connects).
+	ch, unsubscribe := h.broadcaster.Subscribe()
+	defer unsubscribe()
+
 	setSSEHeaders(w)
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
-
-	ch, unsubscribe := h.broadcaster.Subscribe()
-	defer unsubscribe()
 
 	ctx := r.Context()
 	for {

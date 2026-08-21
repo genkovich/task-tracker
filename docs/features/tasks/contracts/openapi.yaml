@@ -317,15 +317,13 @@ paths:
           description: >-
             The link is disabled or was never valid. Deliberately
             byte-for-byte identical to the server's generic not-found for
-            any unmatched route (AC-05) — this operation's error code is
-            the shared `common.not_found`, never a tasks-specific code that
-            would confirm a board once existed at this address.
+            any unmatched route (AC-05) — plain text, not this API's usual
+            `{code,message}` JSON envelope, since even that structured shape
+            would itself confirm a board once existed at this address.
           content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
-              example:
-                code: "common.not_found"
-                message: "not found"
+            text/plain:
+              schema: { type: string }
+              example: "404 page not found"
 
   /api/v1/public/boards/{token}/events:
     get:
@@ -351,13 +349,11 @@ paths:
             text/event-stream:
               schema: { type: string }
         "404":
-          description: The link is disabled or was never valid — same generic not-found as the read endpoint above.
+          description: The link is disabled or was never valid — same plain-text generic not-found as the read endpoint above.
           content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
-              example:
-                code: "common.not_found"
-                message: "not found"
+            text/plain:
+              schema: { type: string }
+              example: "404 page not found"
 
 components:
   securitySchemes:

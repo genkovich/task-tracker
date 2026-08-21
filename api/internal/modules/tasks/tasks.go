@@ -1,6 +1,8 @@
 package tasks
 
 import (
+	"net/http"
+
 	"github.com/go-chi/chi/v5"
 
 	"github.com/genkovich/task-tracker/api/internal/modules/tasks/app"
@@ -46,5 +48,11 @@ func (m *Module) RegisterRoutes(r chi.Router) {
 
 func (m *Module) RegisterLongLivedRoutes(r chi.Router) {
 	m.sse.RegisterLongLivedRoutes(r)
-	m.board.RegisterLongLivedRoutes(r)
+}
+
+// RegisterHighTrafficRoutes puts the public board view + its SSE stream on
+// the server's higher-rate-limit subtree — many viewers behind a handful of
+// shared IPs may hit it at once (server.HighTrafficRouteRegistrar).
+func (m *Module) RegisterHighTrafficRoutes(r chi.Router, timeoutMW func(http.Handler) http.Handler) {
+	m.board.RegisterHighTrafficRoutes(r, timeoutMW)
 }

@@ -26,6 +26,8 @@ type cardResp struct {
 	Name         string  `json:"name"`
 	Assignee     *string `json:"assignee"`
 	ColumnStatus string  `json:"column_status"`
+	CreatedAt    string  `json:"created_at"`
+	UpdatedAt    string  `json:"updated_at"`
 }
 
 type cardPageResp struct {
@@ -165,6 +167,12 @@ func TestUpdateCard(t *testing.T) {
 	var updated cardResp
 	decode(t, updateResp, &updated)
 	require.Equal(t, "renamed", updated.Name)
+	// A regression once shipped an empty column_status and a zero
+	// created_at here — the response must be a complete, contract-valid
+	// Card, not just the fields that changed.
+	require.Equal(t, "todo", updated.ColumnStatus)
+	require.NotEmpty(t, updated.CreatedAt)
+	require.NotEqual(t, "0001-01-01T00:00:00Z", updated.CreatedAt)
 
 	badResp := patchJSON(ts, "/api/v1/cards/"+created.ID, map[string]any{"name": ""})
 	require.Equal(t, http.StatusBadRequest, badResp.StatusCode)

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { LayoutGridIcon } from "lucide-react";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { EmptyState } from "@/shared/ui/EmptyState";
@@ -18,12 +19,14 @@ interface PublicBoardViewProps {
 export function PublicBoardView({ token, onNotFound }: PublicBoardViewProps) {
   const [cards, setCards] = useState<Card[]>([]);
   const [state, setState] = useState<ViewState>("loading");
+  const loadedOnce = useRef(false);
 
   const load = useCallback(async () => {
     try {
       const items = await publicBoardApi.getBoard(token);
       setCards(items);
       setState("board");
+      loadedOnce.current = true;
     } catch (err) {
       // A disabled or never-valid token resolves as a plain-text 404
       // (AC-05) — the apiClient still surfaces it as an ApiClientError
@@ -31,6 +34,14 @@ export function PublicBoardView({ token, onNotFound }: PublicBoardViewProps) {
       // envelope. Any other failure (network, 5xx) is a transient error.
       if (err instanceof ApiClientError && err.statusCode === 404) {
         setState("not-found");
+        return;
+      }
+      // Only the *first* load blanks the screen — a background refetch
+      // failure on an already-loaded board keeps the last known state and
+      // just toasts (screens.md SCR-02 error state), so a live viewer's
+      // board doesn't disappear mid-demo over one flaky poll.
+      if (loadedOnce.current) {
+        toast.error("Connection issue — the board may be stale");
       } else {
         setState("error");
       }
@@ -99,7 +110,8 @@ export function PublicBoardView({ token, onNotFound }: PublicBoardViewProps) {
   }
 
   return (
-    <div className="flex gap-4">
+    // Stacked on narrow viewports — see BoardView's identical layout note.
+    <div className="flex flex-col gap-4 sm:flex-row">
       {COLUMNS.map(({ status, label }) => (
         <BoardColumn
           key={status}

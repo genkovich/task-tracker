@@ -22,18 +22,24 @@ func NewPublicLinkService(repo domain.PublicLinkRepository, broadcaster *Broadca
 }
 
 // GenerateLink creates a new unpredictable token, replacing any currently
-// active link (repo-layer invariant), and broadcasts the change.
+// active link (repo-layer invariant), and broadcasts the change. Also
+// broadcasts a link.disabled for the replaced link's id, if any, so any
+// still-open SSE stream on the old link is revoked immediately — not left
+// authorized until its next event or reconnect.
 func (s *PublicLinkService) GenerateLink(ctx context.Context) (*domain.PublicLink, error) {
 	token, err := generateToken()
 	if err != nil {
 		return nil, err
 	}
 
-	link, err := s.repo.Generate(ctx, token)
+	link, replacedID, err := s.repo.Generate(ctx, token)
 	if err != nil {
 		return nil, err
 	}
 
+	if replacedID != nil {
+		s.broadcaster.Publish(BoardEvent{Type: EventLinkDisabled, Payload: *replacedID})
+	}
 	s.broadcaster.Publish(BoardEvent{Type: EventLinkGenerated, Payload: link.ID})
 	return link, nil
 }

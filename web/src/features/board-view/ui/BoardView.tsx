@@ -4,6 +4,7 @@ import { LayoutGridIcon } from "lucide-react";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { EmptyState } from "@/shared/ui/EmptyState";
 import { Button } from "@/shared/ui/button";
+import { ApiClientError } from "@/shared/api/client";
 import { COLUMNS, type Card, type ColumnStatus } from "@/entities/card/model/types";
 import { BoardColumn } from "@/entities/card/ui/BoardColumn";
 import { boardApi, subscribeToBoardEvents } from "../api/boardApi";
@@ -20,14 +21,23 @@ export function BoardView({ readOnly, onAddCard, onEditCard }: BoardViewProps) {
   const [cards, setCards] = useState<Card[]>([]);
   const [state, setState] = useState<LoadState>("loading");
   const draggedCard = useRef<Card | null>(null);
+  const loadedOnce = useRef(false);
 
   const load = useCallback(async () => {
     try {
       const items = await boardApi.listCards();
       setCards(items);
       setState("loaded");
+      loadedOnce.current = true;
     } catch {
-      setState("error");
+      // Only the *first* load blanks the screen — a refetch failure on an
+      // already-loaded board keeps showing the last known state and just
+      // toasts (screens.md SCR-01 error state).
+      if (loadedOnce.current) {
+        toast.error("Couldn't refresh the board — showing the last known state");
+      } else {
+        setState("error");
+      }
     }
   }, []);
 
@@ -49,11 +59,42 @@ export function BoardView({ readOnly, onAddCard, onEditCard }: BoardViewProps) {
 
     try {
       await boardApi.moveCard(card.id, target);
-    } catch {
+    } catch (err) {
+      if (err instanceof ApiClientError && err.statusCode === 404) {
+        // The card was deleted by someone else while this drag was in
+        // flight — the delete wins (AC-15). Silent no-op, not a
+        // user-facing error: just drop it from the board.
+        setCards((cur) => cur.filter((c) => c.id !== card.id));
+        return;
+      }
       setCards(previous);
       toast.error("Could not save the move — try again");
     }
   }
+
+  // Pointer Events drive the drag end to end (see BoardCard/BoardColumn) —
+  // this window-level listener resolves *where* the pointer was released,
+  // since a captured pointer keeps delivering events to the card element
+  // even once the finger/cursor has moved off it.
+  useEffect(() => {
+    if (readOnly) return;
+
+    function onPointerUp(e: PointerEvent) {
+      if (!draggedCard.current) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const columnEl = el?.closest("[data-column-status]");
+      const target = columnEl?.getAttribute("data-column-status") as ColumnStatus | null;
+      if (target) {
+        handleDrop(target);
+      } else {
+        draggedCard.current = null;
+      }
+    }
+
+    window.addEventListener("pointerup", onPointerUp);
+    return () => window.removeEventListener("pointerup", onPointerUp);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readOnly, cards]);
 
   async function handleDelete(card: Card) {
     const previous = cards;
@@ -113,7 +154,11 @@ export function BoardView({ readOnly, onAddCard, onEditCard }: BoardViewProps) {
   }
 
   return (
-    <div className="flex gap-4">
+    // Stacked on narrow (phone) viewports, side-by-side from sm: up — a
+    // fixed-width 3-column row is wider than a phone screen (3×min-w-64 +
+    // gaps ≈ 800px), which would force horizontal scrolling and make touch
+    // drag unreachable for a column off-screen. Mobile-first per ux-flows.md.
+    <div className="flex flex-col gap-4 sm:flex-row">
       {COLUMNS.map(({ status, label }) => (
         <BoardColumn
           key={status}
@@ -125,7 +170,6 @@ export function BoardView({ readOnly, onAddCard, onEditCard }: BoardViewProps) {
           onEditCard={onEditCard}
           onDeleteCard={handleDelete}
           onDragStart={(card) => (draggedCard.current = card)}
-          onDrop={handleDrop}
         />
       ))}
     </div>

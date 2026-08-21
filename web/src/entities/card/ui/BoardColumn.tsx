@@ -12,7 +12,6 @@ interface BoardColumnProps {
   readonly onEditCard?: (card: Card) => void;
   readonly onDeleteCard?: (card: Card) => void;
   readonly onDragStart?: (card: Card) => void;
-  readonly onDrop?: (status: ColumnStatus) => void;
 }
 
 export function BoardColumn({
@@ -24,13 +23,14 @@ export function BoardColumn({
   onEditCard,
   onDeleteCard,
   onDragStart,
-  onDrop,
 }: BoardColumnProps) {
   return (
     <div
-      className="flex min-w-64 flex-1 flex-col gap-3 rounded-lg bg-muted/40 p-3"
-      onDragOver={(e) => !readOnly && e.preventDefault()}
-      onDrop={() => !readOnly && onDrop?.(status)}
+      className="flex w-full flex-col gap-3 rounded-lg bg-muted/40 p-3 sm:min-w-64 sm:flex-1"
+      // The drop target itself: BoardView's pointerup handler resolves this
+      // via document.elementFromPoint(...).closest("[data-column-status]")
+      // — Pointer Events, not HTML5 dragover/drop, so touch works too.
+      data-column-status={status}
       data-testid={`column-${status}`}
     >
       <div className="flex items-center justify-between">

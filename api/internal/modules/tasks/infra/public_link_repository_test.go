@@ -28,7 +28,7 @@ func TestPublicLinkRepository_Generate(t *testing.T) {
 	repo := setupLinkRepo(t)
 	ctx := context.Background()
 
-	link, err := repo.Generate(ctx, "tok-1")
+	link, _, err := repo.Generate(ctx, "tok-1")
 	require.NoError(t, err)
 	require.Equal(t, "tok-1", link.Token)
 	require.True(t, link.Active())
@@ -38,12 +38,15 @@ func TestPublicLinkRepository_Generate_DisablesPriorActive(t *testing.T) {
 	repo := setupLinkRepo(t)
 	ctx := context.Background()
 
-	first, err := repo.Generate(ctx, "tok-first")
+	first, replacedID, err := repo.Generate(ctx, "tok-first")
 	require.NoError(t, err)
+	require.Nil(t, replacedID, "the very first link replaces nothing")
 
-	second, err := repo.Generate(ctx, "tok-second")
+	second, replacedID2, err := repo.Generate(ctx, "tok-second")
 	require.NoError(t, err)
 	require.True(t, second.Active())
+	require.NotNil(t, replacedID2)
+	require.Equal(t, first.ID, *replacedID2)
 
 	// The prior link must now be disabled — never more than one active link.
 	stale, err := repo.GetByID(ctx, first.ID)
@@ -55,7 +58,7 @@ func TestPublicLinkRepository_ResolveByToken_Active(t *testing.T) {
 	repo := setupLinkRepo(t)
 	ctx := context.Background()
 
-	link, err := repo.Generate(ctx, "tok-resolve")
+	link, _, err := repo.Generate(ctx, "tok-resolve")
 	require.NoError(t, err)
 
 	got, err := repo.ResolveByToken(ctx, "tok-resolve")
@@ -67,7 +70,7 @@ func TestPublicLinkRepository_ResolveByToken_DisabledOrUnknown(t *testing.T) {
 	repo := setupLinkRepo(t)
 	ctx := context.Background()
 
-	link, err := repo.Generate(ctx, "tok-disable-me")
+	link, _, err := repo.Generate(ctx, "tok-disable-me")
 	require.NoError(t, err)
 	require.NoError(t, repo.Disable(ctx, link.ID))
 
@@ -91,7 +94,7 @@ func TestPublicLinkRepository_GetActive_Present(t *testing.T) {
 	repo := setupLinkRepo(t)
 	ctx := context.Background()
 
-	link, err := repo.Generate(ctx, "tok-active")
+	link, _, err := repo.Generate(ctx, "tok-active")
 	require.NoError(t, err)
 
 	got, err := repo.GetActive(ctx)
@@ -104,7 +107,7 @@ func TestPublicLinkRepository_Disable_Idempotent(t *testing.T) {
 	repo := setupLinkRepo(t)
 	ctx := context.Background()
 
-	link, err := repo.Generate(ctx, "tok-idem")
+	link, _, err := repo.Generate(ctx, "tok-idem")
 	require.NoError(t, err)
 
 	require.NoError(t, repo.Disable(ctx, link.ID))

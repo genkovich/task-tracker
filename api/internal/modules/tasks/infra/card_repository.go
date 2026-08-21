@@ -69,14 +69,15 @@ func (r *PostgresCardRepository) List(ctx context.Context) ([]domain.Card, error
 }
 
 // Update unconditionally overwrites name/assignee and bumps updated_at
-// (ADR-0002) — no version check, no rejection.
+// (ADR-0002) — no version check, no rejection. Returns the full row (not
+// just updated_at) so the caller always has a complete, contract-valid Card.
 func (r *PostgresCardRepository) Update(ctx context.Context, card *domain.Card) error {
 	err := r.db.QueryRow(ctx,
 		`UPDATE cards SET name = $1, assignee = $2, updated_at = now()
 		 WHERE id = $3
-		 RETURNING updated_at`,
+		 RETURNING column_status, created_at, updated_at`,
 		card.Name, card.Assignee, card.ID,
-	).Scan(&card.UpdatedAt)
+	).Scan(&card.ColumnStatus, &card.CreatedAt, &card.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ErrCardNotFound

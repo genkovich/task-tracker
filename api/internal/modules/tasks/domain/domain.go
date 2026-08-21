@@ -90,7 +90,10 @@ type CardRepository interface {
 }
 
 type PublicLinkRepository interface {
-	Generate(ctx context.Context, token string) (*PublicLink, error)
+	// Generate returns the new link, plus the id of the link it replaced
+	// (nil if none was active) — the caller needs that id to revoke any
+	// still-open SSE stream on the replaced link.
+	Generate(ctx context.Context, token string) (link *PublicLink, replacedID *uuid.UUID, err error)
 	GetByID(ctx context.Context, id uuid.UUID) (*PublicLink, error)
 	GetActive(ctx context.Context) (*PublicLink, error)
 	ResolveByToken(ctx context.Context, token string) (*PublicLink, error)

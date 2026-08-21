@@ -74,6 +74,27 @@ describe("PublicBoardView", () => {
     });
   });
 
+  it("keeps showing the board (not the error state) when a background refetch fails", async () => {
+    mockGetBoard.mockResolvedValueOnce([cardA]).mockRejectedValueOnce(new Error("network error"));
+    let triggerRefetch: () => void = () => {};
+    mockSubscribe.mockImplementation((_token, onEvent) => {
+      triggerRefetch = onEvent;
+      return () => {};
+    });
+
+    render(<PublicBoardView token="tok" onNotFound={vi.fn()} />);
+    await waitFor(() => screen.getByTestId("card-a1"));
+
+    act(() => {
+      triggerRefetch();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("card-a1")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Couldn't load the board")).not.toBeInTheDocument();
+  });
+
   it("calls onNotFound when the SSE stream reports the link was disabled (AC-12)", async () => {
     mockGetBoard.mockResolvedValue([cardA]);
     let disabledCallback: (() => void) | undefined;

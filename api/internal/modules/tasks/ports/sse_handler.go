@@ -55,12 +55,16 @@ func (h *SSEHandler) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Subscribe BEFORE flushing headers: the client's EventSource fires
+	// "open" the instant headers land, so an action triggered right after
+	// connecting must never race ahead of Subscribe() registering the
+	// channel — a lost first event.
+	ch, unsubscribe := h.broadcaster.Subscribe()
+	defer unsubscribe()
+
 	setSSEHeaders(w)
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
-
-	ch, unsubscribe := h.broadcaster.Subscribe()
-	defer unsubscribe()
 
 	ctx := r.Context()
 	for {

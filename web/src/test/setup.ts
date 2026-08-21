@@ -11,3 +11,4 @@ Element.prototype.scrollIntoView ??= function () {};
 Element.prototype.hasPointerCapture ??= function () { return false; };
 Element.prototype.setPointerCapture ??= function () {};
 Element.prototype.releasePointerCapture ??= function () {};
+document.elementFromPoint ??= () => null;

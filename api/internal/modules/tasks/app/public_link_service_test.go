@@ -23,18 +23,21 @@ func newFakeLinkRepo() *fakeLinkRepo {
 	return &fakeLinkRepo{links: map[uuid.UUID]domain.PublicLink{}}
 }
 
-func (f *fakeLinkRepo) Generate(_ context.Context, token string) (*domain.PublicLink, error) {
+func (f *fakeLinkRepo) Generate(_ context.Context, token string) (*domain.PublicLink, *uuid.UUID, error) {
 	f.generateCalled++
+	var replacedID *uuid.UUID
 	for id, l := range f.links {
 		if l.Active() {
 			l.DisabledAt = &knownTime
 			f.links[id] = l
+			replaced := id
+			replacedID = &replaced
 		}
 	}
 	id, _ := uuid.NewV7()
 	link := domain.PublicLink{ID: id, Token: token}
 	f.links[id] = link
-	return &link, nil
+	return &link, replacedID, nil
 }
 
 func (f *fakeLinkRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.PublicLink, error) {
@@ -105,6 +108,31 @@ func TestPublicLinkService_DisableLink_BroadcastsEvent(t *testing.T) {
 
 	ev := <-ch
 	require.Equal(t, app.EventLinkDisabled, ev.Type)
+}
+
+// TestPublicLinkService_GenerateLink_RevokesReplacedLink proves a second
+// "Get link" click doesn't leave the first link's SSE stream authorized
+// indefinitely: a link.disabled event fires for the replaced link too.
+func TestPublicLinkService_GenerateLink_RevokesReplacedLink(t *testing.T) {
+	repo := newFakeLinkRepo()
+	b := app.NewBroadcaster()
+	svc := app.NewPublicLinkService(repo, b)
+
+	first, err := svc.GenerateLink(context.Background())
+	require.NoError(t, err)
+
+	ch, unsub := b.Subscribe()
+	defer unsub()
+
+	_, err = svc.GenerateLink(context.Background())
+	require.NoError(t, err)
+
+	disabledEv := <-ch
+	require.Equal(t, app.EventLinkDisabled, disabledEv.Type)
+	require.Equal(t, first.ID, disabledEv.Payload)
+
+	generatedEv := <-ch
+	require.Equal(t, app.EventLinkGenerated, generatedEv.Type)
 }
 
 func TestPublicLinkService_GetActiveLink_NoneIsNilNotError(t *testing.T) {

@@ -8,12 +8,6 @@ import (
 	"github.com/genkovich/task-tracker/api/internal/platform/apperr"
 )
 
-// errCommonNotFound is the shared, module-neutral not-found used by the
-// public-board endpoints — deliberately NOT a tasks.* code, so a disabled or
-// never-valid link can never be distinguished from any other bad address
-// (AC-05, ADR-0003).
-var errCommonNotFound = apperr.Error{Code: "common.not_found", Message: "not found", StatusCode: http.StatusNotFound}
-
 var errorMap = []struct {
 	target error
 	appErr apperr.Error
@@ -33,14 +27,4 @@ func mapError(err error) error {
 		}
 	}
 	return err
-}
-
-// mapPublicError maps ErrLinkNotFound to the shared common.not_found code
-// instead of tasks.link_not_found — used only by the public-board endpoints.
-func mapPublicError(err error) error {
-	if errors.Is(err, domain.ErrLinkNotFound) {
-		mapped := errCommonNotFound
-		return &mapped
-	}
-	return mapError(err)
 }

@@ -21,23 +21,38 @@ func NewPostgresPublicLinkRepository(db *database.DB) *PostgresPublicLinkReposit
 
 // Generate disables any currently active link, then inserts a new one — a
 // single transaction, so there is never more than one active link
-// (data-model.md's service-layer invariant).
-func (r *PostgresPublicLinkRepository) Generate(ctx context.Context, token string) (*domain.PublicLink, error) {
+// (data-model.md's service-layer invariant). Returns the id of the link it
+// replaced, if any, so the caller can revoke that link's open SSE streams.
+func (r *PostgresPublicLinkRepository) Generate(ctx context.Context, token string) (*domain.PublicLink, *uuid.UUID, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	if _, err := tx.Exec(ctx,
-		`UPDATE public_links SET disabled_at = now() WHERE disabled_at IS NULL`,
-	); err != nil {
-		return nil, err
+	var replacedID *uuid.UUID
+	rows, err := tx.Query(ctx,
+		`UPDATE public_links SET disabled_at = now() WHERE disabled_at IS NULL RETURNING id`,
+	)
+	if err != nil {
+		return nil, nil, err
 	}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, nil, err
+		}
+		replacedID = &id
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	rows.Close()
 
 	id, err := uuid.NewV7()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	link := &domain.PublicLink{ID: id, Token: token}
@@ -45,13 +60,13 @@ func (r *PostgresPublicLinkRepository) Generate(ctx context.Context, token strin
 		`INSERT INTO public_links (id, token) VALUES ($1, $2) RETURNING created_at`,
 		link.ID, link.Token,
 	).Scan(&link.CreatedAt); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return link, nil
+	return link, replacedID, nil
 }
 
 func (r *PostgresPublicLinkRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.PublicLink, error) {
