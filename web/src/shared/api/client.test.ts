@@ -60,6 +60,23 @@ describe("apiClient", () => {
     expect(result).toEqual({ id: 1 });
   });
 
+  // Review 2026-08-21 root K: public viewer routes are anonymous by design —
+  // an editor's bearer token must never leak onto them.
+  it("does not attach the Authorization header on /public/ paths", async () => {
+    localStorage.setItem("access_token", "test-token");
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ columns: [] }),
+    });
+
+    await apiClient.get("/public/some-token/board");
+
+    const [, options] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect((options.headers as Record<string, string>).Authorization).toBeUndefined();
+  });
+
   it("throws ApiClientError on non-401 error", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,

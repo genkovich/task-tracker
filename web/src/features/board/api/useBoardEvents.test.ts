@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { BASE_URL } from "@/shared/api/client";
-import { useBoardEvents } from "./useBoardEvents";
+import { useBoardEvents, usePublicBoardEvents } from "./useBoardEvents";
 
 type Listener = (ev: MessageEvent) => void;
 
@@ -125,5 +125,15 @@ describe("useBoardEvents", () => {
     unmount();
 
     expect(source.closed).toBe(true);
+  });
+
+  // Review 2026-08-21 root K: the token is interpolated into the SSE URL —
+  // reserved characters must stay inside their path segment.
+  it("encodes the public token in the events URL", () => {
+    renderHook(() => usePublicBoardEvents("tok/../evil?x=1", vi.fn()));
+
+    expect(MockEventSource.instances[0].url).toBe(
+      `${BASE_URL}/api/v1/public/${encodeURIComponent("tok/../evil?x=1")}/events`,
+    );
   });
 });

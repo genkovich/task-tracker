@@ -19,17 +19,26 @@ export function TaskCard({
   onDragStart,
   className,
 }: TaskCardProps) {
+  // Read-only rendering (SCR-05, AC-10): without a click handler the card is
+  // plain content — no button semantics, focusability or pointer cursor; and
+  // when not draggable, no drag wiring either.
+  const clickable = onClick !== undefined;
+
   return (
     <Card
-      className={cn("cursor-pointer gap-2 py-3", className)}
-      role="button"
-      tabIndex={0}
+      className={cn(clickable && "cursor-pointer", "gap-2 py-3", className)}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
       draggable={draggable}
-      onClick={() => onClick?.(task)}
-      onDragStart={(e) => {
-        e.dataTransfer.setData("text/plain", task.id);
-        onDragStart?.(task);
-      }}
+      onClick={clickable ? () => onClick(task) : undefined}
+      onDragStart={
+        draggable
+          ? (e) => {
+              e.dataTransfer.setData("text/plain", task.id);
+              onDragStart?.(task);
+            }
+          : undefined
+      }
     >
       <CardContent className="flex flex-col gap-1 px-3">
         <p className="text-sm font-medium">{task.title}</p>

@@ -16,7 +16,7 @@ export function useBoardEvents(onStateChanged: () => void): void {
  * synchronously by the server when the link is revoked (AC-11, ADR-0002).
  */
 export function usePublicBoardEvents(token: string, onStateChanged: () => void): void {
-  useBoardEventsAt(`${BASE_URL}/api/v1/public/${token}/events`, onStateChanged);
+  useBoardEventsAt(`${BASE_URL}/api/v1/public/${encodeURIComponent(token)}/events`, onStateChanged);
 }
 
 function useBoardEventsAt(url: string, onStateChanged: () => void): void {

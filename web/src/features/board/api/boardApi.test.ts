@@ -35,6 +35,30 @@ describe("boardApi.getBoard", () => {
   });
 });
 
+// Review 2026-08-21 root K: token/taskId are interpolated into URL paths —
+// a value with reserved characters must not break out of its path segment.
+describe("boardApi — path parameters are URL-encoded", () => {
+  it("encodes the public token in the board path", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ columns: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await boardApi.getPublicBoard("tok/../evil?x=1");
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/public/${encodeURIComponent("tok/../evil?x=1")}/board`);
+  });
+
+  it("encodes the taskId in task paths", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await boardApi.editTask("id with/slash", { title: "x" });
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/tasks/${encodeURIComponent("id with/slash")}`);
+  });
+});
+
 describe("boardApi.createTask", () => {
   it("POSTs the task title/assignee to /api/v1/tasks", async () => {
     const created = {

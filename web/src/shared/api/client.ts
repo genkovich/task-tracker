@@ -60,8 +60,10 @@ async function doFetch(path: string, options?: RequestInit): Promise<Response> {
     "Content-Type": "application/json",
   };
 
+  // Public viewer routes are anonymous by design — never leak the editor's
+  // bearer token onto them.
   const token = localStorage.getItem("access_token");
-  if (token) {
+  if (token && !path.startsWith("/public/")) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
