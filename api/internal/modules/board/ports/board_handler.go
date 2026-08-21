@@ -33,9 +33,10 @@ func NewBoardHandler(stateService BoardStateService, boardID uuid.UUID) *BoardHa
 }
 
 // RegisterRoutes mounts the team-editor board-state route
-// (contracts/openapi.yaml getBoard).
+// (contracts/openapi.yaml getBoard), relative to the caller's mount point
+// (the server's shared /api/v1 registrar group).
 func (h *BoardHandler) RegisterRoutes(r chi.Router) {
-	r.Get("/api/v1/board", h.handleGetBoard)
+	r.Get("/board", h.handleGetBoard)
 }
 
 // @Summary  Get board state

@@ -43,10 +43,13 @@ func NewSSEHandler(registry SSERegistry, stateService PublicStateService) *SSEHa
 }
 
 // RegisterRoutes mounts the SSE routes (contracts/openapi.yaml
-// streamBoardEvents, streamPublicBoardEvents).
+// streamBoardEvents, streamPublicBoardEvents), relative to the caller's
+// mount point. The caller must keep these off any per-request timeout
+// middleware — a timeout would cancel the stream's context mid-flight
+// (board.Handler exposes them via RegisterStreamingRoutes for exactly that).
 func (h *SSEHandler) RegisterRoutes(r chi.Router) {
-	r.Get("/api/v1/board/events", h.handleStreamBoardEvents)
-	r.Get("/api/v1/public/{token}/events", h.handleStreamPublicBoardEvents)
+	r.Get("/board/events", h.handleStreamBoardEvents)
+	r.Get("/public/{token}/events", h.handleStreamPublicBoardEvents)
 }
 
 // @Summary  Stream board events (team-editor)

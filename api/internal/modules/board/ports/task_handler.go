@@ -40,10 +40,11 @@ func NewTaskHandler(taskService TaskAppService) *TaskHandler {
 	return &TaskHandler{taskService: taskService}
 }
 
-// RegisterRoutes mounts the team-editor task routes. POST /api/v1/tasks is
-// additionally rate-limited to taskCreateRateLimit requests/minute per
-// client (spec §6.1 abuse case) — scoped to this one route via a chi
-// sub-group so it doesn't throttle edit/move/delete.
+// RegisterRoutes mounts the team-editor task routes, relative to the
+// caller's mount point (the server's shared /api/v1 registrar group).
+// POST /tasks is additionally rate-limited to taskCreateRateLimit
+// requests/minute per client (spec §6.1 abuse case) — scoped to this one
+// route via a chi sub-group so it doesn't throttle edit/move/delete.
 func (h *TaskHandler) RegisterRoutes(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(httprate.Limit(
@@ -52,12 +53,12 @@ func (h *TaskHandler) RegisterRoutes(r chi.Router) {
 			httprate.WithKeyFuncs(httprate.KeyByIP),
 			httprate.WithLimitHandler(handleTaskRateLimited),
 		))
-		r.Post("/api/v1/tasks", h.handleCreateTask)
+		r.Post("/tasks", h.handleCreateTask)
 	})
 
-	r.Patch("/api/v1/tasks/{taskId}", h.handleEditTask)
-	r.Delete("/api/v1/tasks/{taskId}", h.handleDeleteTask)
-	r.Post("/api/v1/tasks/{taskId}/move", h.handleMoveTask)
+	r.Patch("/tasks/{taskId}", h.handleEditTask)
+	r.Delete("/tasks/{taskId}", h.handleDeleteTask)
+	r.Post("/tasks/{taskId}/move", h.handleMoveTask)
 }
 
 // handleTaskRateLimited writes the documented 429 task.rate_limited body

@@ -101,7 +101,7 @@ func setupT9SSEServer(t *testing.T) t9SSEFixture {
 	handler := ports.NewSSEHandler(hub, stateSvc)
 
 	r := chi.NewRouter()
-	handler.RegisterRoutes(r)
+	r.Route("/api/v1", handler.RegisterRoutes)
 
 	ts := httptest.NewServer(r)
 	t.Cleanup(ts.Close)

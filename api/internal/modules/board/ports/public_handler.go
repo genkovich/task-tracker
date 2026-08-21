@@ -34,9 +34,10 @@ func NewPublicHandler(stateService PublicStateService) *PublicHandler {
 }
 
 // RegisterRoutes mounts the public, unauthenticated viewer routes
-// (contracts/openapi.yaml getPublicBoard).
+// (contracts/openapi.yaml getPublicBoard), relative to the caller's mount
+// point (the server's shared /api/v1 registrar group).
 func (h *PublicHandler) RegisterRoutes(r chi.Router) {
-	r.Get("/api/v1/public/{token}/board", h.handleGetPublicBoard)
+	r.Get("/public/{token}/board", h.handleGetPublicBoard)
 }
 
 // @Summary  Get public board state

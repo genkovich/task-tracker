@@ -35,10 +35,11 @@ func NewLinkHandler(linkService LinkAppService, boardID uuid.UUID) *LinkHandler 
 }
 
 // RegisterRoutes mounts the team-editor public-link routes
-// (contracts/openapi.yaml issuePublicLink/revokePublicLink).
+// (contracts/openapi.yaml issuePublicLink/revokePublicLink), relative to the
+// caller's mount point (the server's shared /api/v1 registrar group).
 func (h *LinkHandler) RegisterRoutes(r chi.Router) {
-	r.Post("/api/v1/board/public-link", h.handleIssuePublicLink)
-	r.Delete("/api/v1/board/public-link", h.handleRevokePublicLink)
+	r.Post("/board/public-link", h.handleIssuePublicLink)
+	r.Delete("/board/public-link", h.handleRevokePublicLink)
 }
 
 // @Summary  Issue public link

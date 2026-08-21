@@ -110,7 +110,7 @@ func setupT10PublicHandlerServer(t *testing.T) t10PublicHandlerFixture {
 	publicHandler := ports.NewPublicHandler(stateSvc)
 
 	r := chi.NewRouter()
-	publicHandler.RegisterRoutes(r)
+	r.Route("/api/v1", publicHandler.RegisterRoutes)
 
 	ts := httptest.NewServer(r)
 	t.Cleanup(ts.Close)

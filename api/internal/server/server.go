@@ -27,6 +27,15 @@ type ProtectedRouteRegistrar interface {
 	RegisterProtectedRoutes(r chi.Router)
 }
 
+// StreamingRouteRegistrar is optionally implemented by modules that serve
+// long-lived streaming responses (e.g. SSE). These routes share the rate
+// limiter and metrics middleware with every other route but are mounted
+// outside the per-request timeout, which would otherwise cancel the stream's
+// context mid-flight.
+type StreamingRouteRegistrar interface {
+	RegisterStreamingRoutes(r chi.Router)
+}
+
 // Option configures the Server.
 type Option func(*Server)
 
@@ -37,24 +46,35 @@ func WithAppEnv(env string) Option {
 	}
 }
 
+// WithRequestTimeout overrides the per-request timeout applied to
+// non-streaming routes (default 30s). Streaming routes are never subject to
+// it.
+func WithRequestTimeout(d time.Duration) Option {
+	return func(s *Server) {
+		s.requestTimeout = d
+	}
+}
+
 type Server struct {
-	router      *chi.Mux
-	db          *database.DB
-	corsOrigins string
-	appEnv      string
-	authMW      func(http.Handler) http.Handler
-	registrars  []RouteRegistrar
-	metrics     *metrics
+	router         *chi.Mux
+	db             *database.DB
+	corsOrigins    string
+	appEnv         string
+	authMW         func(http.Handler) http.Handler
+	registrars     []RouteRegistrar
+	metrics        *metrics
+	requestTimeout time.Duration
 }
 
 func New(db *database.DB, corsOrigins string, authMW func(http.Handler) http.Handler, opts ...any) *Server {
 	s := &Server{
-		router:      chi.NewRouter(),
-		db:          db,
-		corsOrigins: corsOrigins,
-		appEnv:      "development",
-		authMW:      authMW,
-		metrics:     newMetrics(),
+		router:         chi.NewRouter(),
+		db:             db,
+		corsOrigins:    corsOrigins,
+		appEnv:         "development",
+		authMW:         authMW,
+		metrics:        newMetrics(),
+		requestTimeout: 30 * time.Second,
 	}
 
 	// Separate Options from RouteRegistrars.
@@ -93,7 +113,6 @@ func (s *Server) setupMiddleware() {
 	s.router.Use(middleware.ClientIPFromXFF())
 	s.router.Use(middleware.Logger)
 	s.router.Use(middleware.Recoverer)
-	s.router.Use(middleware.Timeout(30 * time.Second))
 	s.router.Use(requestSizeLimit(1 << 20)) // 1 MB
 }
 
@@ -142,24 +161,39 @@ func (s *Server) setupRoutes() {
 		r.Use(s.metrics.middleware)
 
 		r.Route("/api/v1", func(r chi.Router) {
-			r.Get("/health", s.handleHealth)
-
-			// Public routes.
-			for _, reg := range s.registrars {
-				reg.RegisterRoutes(r)
-			}
-
-			// Protected routes (require auth middleware).
+			// Regular request/response routes run under the per-request
+			// timeout; streaming routes below must not — the timeout would
+			// cancel a long-lived stream's context mid-flight.
 			r.Group(func(r chi.Router) {
-				if s.authMW != nil {
-					r.Use(s.authMW)
-				}
+				r.Use(middleware.Timeout(s.requestTimeout))
+
+				r.Get("/health", s.handleHealth)
+
+				// Public routes.
 				for _, reg := range s.registrars {
-					if pr, ok := reg.(ProtectedRouteRegistrar); ok {
-						pr.RegisterProtectedRoutes(r)
-					}
+					reg.RegisterRoutes(r)
 				}
+
+				// Protected routes (require auth middleware).
+				r.Group(func(r chi.Router) {
+					if s.authMW != nil {
+						r.Use(s.authMW)
+					}
+					for _, reg := range s.registrars {
+						if pr, ok := reg.(ProtectedRouteRegistrar); ok {
+							pr.RegisterProtectedRoutes(r)
+						}
+					}
+				})
 			})
+
+			// Streaming routes (SSE): rate-limited and metered like the
+			// rest, but no per-request timeout.
+			for _, reg := range s.registrars {
+				if sr, ok := reg.(StreamingRouteRegistrar); ok {
+					sr.RegisterStreamingRoutes(r)
+				}
+			}
 		})
 	})
 }

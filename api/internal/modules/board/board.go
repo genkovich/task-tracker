@@ -18,13 +18,12 @@ import (
 // always has exactly one board), seeded by migration 000007_seed_board.
 var BoardID = uuid.MustParse("019a0000-0000-7000-8000-000000000101")
 
-// Handler aggregates every board HTTP surface behind one RouteRegistrar:
-// the team-editor board/task/public-link routes, the team-editor and
-// public-viewer SSE streams (ADR-0002), and the public-viewer read-only
-// routes (ADR-0003). Each sub-handler's RegisterRoutes already registers
-// full "/api/v1/..." paths (ports/*.go), so Handler must be mounted on the
-// server's root router directly, not nested under the shared "/api/v1"
-// registrar group other modules use — see cmd/api/main.go.
+// Handler aggregates every board HTTP surface behind one registrar: the
+// team-editor board/task/public-link routes, the public-viewer read-only
+// routes (ADR-0003) — both via server.RouteRegistrar — and the team-editor +
+// public-viewer SSE streams (ADR-0002) via server.StreamingRouteRegistrar,
+// so the server keeps them off the per-request timeout. Passed into
+// server.New(...) in cmd/api/main.go like every other module.
 type Handler struct {
 	board  *ports.BoardHandler
 	task   *ports.TaskHandler
@@ -54,12 +53,20 @@ func New(db *database.DB) *Handler {
 	}
 }
 
-// RegisterRoutes mounts every board route (team-editor board/task/link,
-// team-editor + public-viewer SSE, public-viewer board) on r.
+// RegisterRoutes mounts the request/response board routes (team-editor
+// board/task/link, public-viewer board) on r — the server's shared /api/v1
+// registrar group, which carries the per-request timeout.
 func (h *Handler) RegisterRoutes(r chi.Router) {
 	h.board.RegisterRoutes(r)
 	h.task.RegisterRoutes(r)
 	h.link.RegisterRoutes(r)
-	h.sse.RegisterRoutes(r)
 	h.public.RegisterRoutes(r)
+}
+
+// RegisterStreamingRoutes mounts the long-lived SSE routes (ADR-0002) on r —
+// the server's streaming group: same rate limit and metrics as everything
+// else, but no per-request timeout, which would cut every stream at the
+// timeout mark.
+func (h *Handler) RegisterStreamingRoutes(r chi.Router) {
+	h.sse.RegisterRoutes(r)
 }

@@ -103,7 +103,7 @@ func setupT7TaskHandlerServer(t *testing.T) t7TaskHandlerFixture {
 	taskHandler := ports.NewTaskHandler(taskSvc)
 
 	r := chi.NewRouter()
-	taskHandler.RegisterRoutes(r)
+	r.Route("/api/v1", taskHandler.RegisterRoutes)
 
 	ts := httptest.NewServer(r)
 	t.Cleanup(ts.Close)

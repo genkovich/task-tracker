@@ -101,8 +101,10 @@ func setupT8BoardLinkServer(t *testing.T) t8BoardLinkFixture {
 	linkHandler := ports.NewLinkHandler(linkSvc, t8SeedBoardID)
 
 	r := chi.NewRouter()
-	boardHandler.RegisterRoutes(r)
-	linkHandler.RegisterRoutes(r)
+	r.Route("/api/v1", func(api chi.Router) {
+		boardHandler.RegisterRoutes(api)
+		linkHandler.RegisterRoutes(api)
+	})
 
 	ts := httptest.NewServer(r)
 	t.Cleanup(ts.Close)
