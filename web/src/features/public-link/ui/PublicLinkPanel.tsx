@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Check, Copy, Share2 } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -7,7 +8,6 @@ import {
   PopoverTitle,
 } from "@/shared/ui/popover";
 import { Button } from "@/shared/ui/button";
-import { Badge } from "@/shared/ui/badge";
 import { ApiClientError } from "@/shared/api/client";
 import { publicLinkApi, type PublicLink } from "../api/publicLinkApi";
 import { noLink, activeLink, type PublicLinkState } from "../model/publicLinkState";
@@ -18,10 +18,14 @@ export interface PublicLinkPanelProps {
   publicLink?: PublicLink | null;
 }
 
+/** SCR-04 public-link panel: попап від кнопки «Поділитись» у шапці борда
+ * (Design/scr04-share-link-*). Стани: немає лінка → «Отримати лінк»;
+ * активний → URL із копіюванням + «Відкликати лінк». */
 export function PublicLinkPanel({ publicLink = null }: PublicLinkPanelProps) {
   const [state, setState] = useState<PublicLinkState>(publicLink ? activeLink(publicLink) : noLink);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // A board refetch can deliver a fresh `public_link` (issued or revoked in
   // another tab) — adopt the prop change. Local issue/revoke transitions
@@ -56,6 +60,17 @@ export function PublicLinkPanel({ publicLink = null }: PublicLinkPanelProps) {
     }
   }
 
+  async function handleCopy(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Кліпборд недоступний (нема дозволу/не secure context) — URL і так
+      // видно текстом, тож мовчки лишаємо ручне копіювання.
+    }
+  }
+
   // Must match the viewer route in routes.ts (`b/:token`), not the API path.
   const publicUrl =
     state.status === "active" ? `${window.location.origin}/b/${state.link.token}` : null;
@@ -63,33 +78,70 @@ export function PublicLinkPanel({ publicLink = null }: PublicLinkPanelProps) {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm">
-          Поділитись
+        <Button
+          variant="secondary"
+          size="sm"
+          aria-label="Поділитись"
+          className="rounded-full bg-white/10 hover:bg-white/15 max-sm:size-9 max-sm:p-0 sm:px-4"
+        >
+          <Share2 aria-hidden />
+          <span className="max-sm:hidden">Поділитись</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent>
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="dark w-[min(22rem,calc(100vw-2rem))] rounded-2xl border-white/10 p-5 font-sans [color-scheme:dark]"
+      >
         <PopoverHeader>
-          <PopoverTitle>Публічне посилання</PopoverTitle>
+          <PopoverTitle className="text-lg font-semibold">Публічне посилання</PopoverTitle>
         </PopoverHeader>
 
         {state.status === "none" ? (
-          <div className="mt-2 flex flex-col gap-2">
-            <Badge variant="secondary">Немає активного лінка</Badge>
-            <Button size="sm" disabled={pending} onClick={handleIssue}>
+          <div className="mt-3 flex flex-col gap-3">
+            <p className="text-[15px] font-semibold">Публічного лінка ще немає.</p>
+            <p className="text-sm text-muted-foreground">
+              Будь-хто з лінком зможе переглядати цю дошку, але не редагувати.
+            </p>
+            <Button
+              size="sm"
+              className="self-start rounded-full px-4"
+              disabled={pending}
+              onClick={handleIssue}
+            >
               Отримати лінк
             </Button>
           </div>
         ) : (
-          <div className="mt-2 flex flex-col gap-2">
-            <Badge>Активний лінк</Badge>
-            <p className="text-sm break-all">{publicUrl}</p>
-            <Button size="sm" variant="destructive" disabled={pending} onClick={handleRevoke}>
-              Відкликати
+          <div className="mt-3 flex flex-col gap-3">
+            <div className="flex items-center gap-1 rounded-xl bg-white/[0.06] py-1 pr-1 pl-3">
+              <p className="min-w-0 flex-1 truncate text-sm">{publicUrl}</p>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="rounded-lg text-muted-foreground hover:text-foreground"
+                aria-label="Скопіювати лінк"
+                onClick={() => publicUrl && void handleCopy(publicUrl)}
+              >
+                {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
+              </Button>
+            </div>
+            <Button
+              size="sm"
+              variant="destructive"
+              className="self-start rounded-full px-4 dark:bg-destructive dark:hover:bg-destructive/90"
+              disabled={pending}
+              onClick={handleRevoke}
+            >
+              Відкликати лінк
             </Button>
+            <p className="text-sm text-muted-foreground">
+              Завжди показує актуальну дошку, лише для перегляду.
+            </p>
           </div>
         )}
 
-        {error && <p className="text-destructive mt-2 text-sm">{error}</p>}
+        {error && <p className="text-destructive mt-3 text-sm">{error}</p>}
       </PopoverContent>
     </Popover>
   );
