@@ -6,9 +6,10 @@ import { boardApi } from "@/features/board/api/boardApi";
 import { usePublicBoardEvents } from "@/features/board/api/useBoardEvents";
 import { showApiError } from "@/shared/lib/showApiError";
 import { ApiClientError } from "@/shared/api/client";
-import type { PublicBoardState } from "@/features/board/api/types";
+import type { PublicBoardState, Task } from "@/features/board/api/types";
 import { BoardLoadError, BoardLoading } from "@/features/board/ui/BoardLoadState";
 import { Column } from "@/features/board/ui/Column";
+import { TaskDetailsModal } from "@/features/board/ui/TaskDetailsModal";
 import { BoardShell } from "@/widgets/board-shell/ui/BoardShell";
 
 /** SCR-05 public read-only board view (AC-09, AC-10): fetches via a
@@ -21,6 +22,7 @@ export default function BoardPublicPage() {
   const [board, setBoard] = useState<PublicBoardState | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const boardRef = useRef<PublicBoardState | null>(null);
 
   const refetch = useCallback(() => {
@@ -95,13 +97,40 @@ export default function BoardPublicPage() {
             <div className="flex-1 rounded-3xl sm:bg-muted/50 sm:p-5">
               <div className="flex flex-col gap-8 sm:flex-row sm:gap-5 sm:overflow-x-auto sm:pb-1">
                 {board.columns.map((column) => (
-                  <Column key={column.id} column={column} readOnly />
+                  <Column
+                    key={column.id}
+                    column={column}
+                    readOnly
+                    onTaskClick={(task) => setSelectedTask(task)}
+                  />
                 ))}
               </div>
             </div>
           )}
         </BoardShell>
       </main>
+
+      {/* SCR-07 (TSK-12): the same details the editor sees, as text — the
+       * token is what makes the dialog read-only. */}
+      {selectedTask && (
+        <TaskDetailsModal
+          task={selectedTask}
+          publicToken={token}
+          open
+          onOpenChange={(open) => {
+            if (!open) setSelectedTask(null);
+          }}
+          onSaved={() => {}}
+          onDeleted={() => setSelectedTask(null)}
+          // A link revoked while the viewer was reading, or a task that is not
+          // on this board (TSK-13), lands on the same honest SCR-06 screen a
+          // dead link does — never a generic "could not load".
+          onLinkInvalid={() => {
+            setSelectedTask(null);
+            setUnavailable(true);
+          }}
+        />
+      )}
     </div>
   );
 }

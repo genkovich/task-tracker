@@ -13,10 +13,12 @@ import BoardPublicPage from "./BoardPublicPage";
 // subscribe via a token-scoped `usePublicBoardEvents` rather than doing its
 // own fetching (mirrors T18's BoardPage / boardApi.getBoard convention).
 const mockGetPublicBoard = vi.fn();
+const mockGetPublicTask = vi.fn();
 
 vi.mock("@/features/board/api/boardApi", () => ({
   boardApi: {
     getPublicBoard: (...args: unknown[]) => mockGetPublicBoard(...args),
+    getPublicTask: (...args: unknown[]) => mockGetPublicTask(...args),
   },
 }));
 
@@ -44,6 +46,10 @@ const board = {
           column_id: "col-1",
           title: "Write the report",
           assignee: "Alex",
+          priority: "high",
+          due_date: "2026-09-01",
+          has_description: true,
+          comment_count: 1,
           created_at: "2026-08-20T00:00:00Z",
           updated_at: "2026-08-20T00:00:00Z",
         },
@@ -196,10 +202,77 @@ describe("BoardPublicPage — public read-only board view (SCR-05)", () => {
     expect(document.querySelectorAll('[draggable="true"]')).toHaveLength(0);
 
     // AC-10: clicking a task card must not open an edit/delete affordance.
+    // Since the tasks feature the click does open something — read-only
+    // details (TSK-12) — so this pins that it is still not editable.
     const user = userEvent.setup();
     await user.click(screen.getByText("Write the report"));
     expect(screen.queryByRole("heading", { name: /редагувати|edit/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /видалити|delete/i })).not.toBeInTheDocument();
+  });
+
+  // TSK-12: a viewer's card click opens the details, fetched through the very
+  // token they hold — never through the editor route.
+  it("opens read-only task details through the public token when a card is clicked", async () => {
+    mockGetPublicBoard.mockResolvedValue(board);
+    mockGetPublicTask.mockResolvedValue({
+      task: {
+        id: "task-1",
+        column_id: "col-1",
+        title: "Write the report",
+        assignee: "Alex",
+        description: "Зібрати цифри за тиждень",
+        priority: "high",
+        due_date: "2026-09-01",
+        created_at: "2026-08-20T00:00:00Z",
+        updated_at: "2026-08-20T00:00:00Z",
+      },
+      comments: [
+        {
+          id: "comment-1",
+          task_id: "task-1",
+          author: "Grace",
+          body: "Цифри вже є в дашборді",
+          created_at: "2026-08-21T09:00:00Z",
+        },
+      ],
+    });
+
+    renderPage("valid-token");
+    await screen.findByText("Write the report");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Write the report"));
+
+    expect(await screen.findByText("Зібрати цифри за тиждень")).toBeInTheDocument();
+    expect(mockGetPublicTask).toHaveBeenCalledWith("valid-token", "task-1");
+    expect(screen.getByText("Цифри вже є в дашборді")).toBeInTheDocument();
+
+    // Read-only is a fact about the markup: nothing here can be typed into.
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Додати коментар" })).not.toBeInTheDocument();
+  });
+
+  // Review I2 / TSK-13: the link died (or the task was never on this board)
+  // while the viewer was reading. That belongs on the same honest SCR-06
+  // screen a dead link gets — not on a generic "could not load the details"
+  // inside a dialog the board still shows behind it.
+  it("sends the viewer to the link-unavailable screen when the details come back link_invalid", async () => {
+    mockGetPublicBoard.mockResolvedValue(board);
+    mockGetPublicTask.mockRejectedValue(
+      new ApiClientError("board.link_invalid", "this link is no longer available", 404),
+    );
+
+    renderPage("valid-token");
+    await screen.findByText("Write the report");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Write the report"));
+
+    expect(await screen.findByText(/недоступ|no longer/i)).toBeInTheDocument();
+    expect(screen.queryByText(/не вдалося завантажити/i)).not.toBeInTheDocument();
+    // SCR-06 replaces the screen — the board must not stay behind it.
+    expect(screen.queryByText("To do")).not.toBeInTheDocument();
   });
 
   // AC-11: an invalid/revoked token renders the SCR-06 "link unavailable"

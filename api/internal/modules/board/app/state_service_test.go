@@ -35,10 +35,10 @@ func TestStateService_GetPublicBoardState_ValidToken_ReturnsBoardState(t *testin
 	repo.linksByBoard[boardID] = link
 	repo.linksByToken[link.Token] = link
 
-	task := domain.Task{ID: uuid.Must(uuid.NewV7()), ColumnID: columnID, Title: "Write the report"}
+	task := ports.TaskListItem{ID: uuid.Must(uuid.NewV7()), ColumnID: columnID, Title: "Write the report"}
 	column := domain.Column{ID: columnID, BoardID: boardID, Name: "To Do", Position: 0}
 	repo.states[boardID] = &ports.BoardState{
-		Columns:    []ports.ColumnState{{Column: column, Tasks: []domain.Task{task}}},
+		Columns:    []ports.ColumnState{{Column: column, Tasks: []ports.TaskListItem{task}}},
 		PublicLink: link,
 	}
 

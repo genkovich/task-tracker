@@ -3,7 +3,10 @@ import { showApiError } from "@/shared/lib/showApiError";
 import type { Column, Task } from "../api/types";
 
 interface UseBoardDndDeps {
-  moveTask: (taskId: string, columnId: string) => Promise<Task>;
+  // The moved task itself is never read here — the optimistic update already
+  // put the card where it belongs, and the server's copy arrives with the
+  // next board refetch — so the hook stays indifferent to its shape.
+  moveTask: (taskId: string, columnId: string) => Promise<unknown>;
 }
 
 /** An in-flight pointer drag: which task is being dragged and which column

@@ -9,12 +9,38 @@ import (
 	"github.com/genkovich/task-tracker/api/internal/modules/board/domain"
 )
 
+// TaskListItem is a task as it appears in a board listing. Deliberately not
+// domain.Task: the board state carries no description body (tasks spec §6 —
+// a refetch on every SSE event would otherwise drag every description across
+// the wire), only the derived flag and count the card draws its markers from.
+type TaskListItem struct {
+	ID             uuid.UUID
+	ColumnID       uuid.UUID
+	Title          string
+	Assignee       *string
+	Priority       domain.Priority
+	DueDate        *time.Time
+	HasDescription bool
+	CommentCount   int
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+// TaskDetail is one task in full — description included — with its comments,
+// oldest first (tasks TSK-01/TSK-08). Returned by both the team-editor and
+// the token-scoped viewer read; the viewer's copy is identical, which is the
+// point: the same content, minus every affordance to change it.
+type TaskDetail struct {
+	Task     domain.Task
+	Comments []domain.Comment
+}
+
 // ColumnState is a column with its tasks attached, ordered by
 // idx_columns_board_id_position / idx_tasks_column_id (data-model.md) — the
 // shape GetBoardState returns for rendering the whole board in one call.
 type ColumnState struct {
 	domain.Column
-	Tasks []domain.Task
+	Tasks []TaskListItem
 }
 
 // BoardState bundles one board's identity (id/name — boards contract
@@ -74,9 +100,35 @@ type Repository interface {
 	// task.ColumnID does not exist.
 	InsertTask(ctx context.Context, task *domain.Task) error
 
-	// UpdateTask persists edits to an existing task's title/assignee and
-	// fills task with the stored row's remaining fields (column_id,
-	// created_at, updated_at), so the caller holds a complete Task; it also
+	// TaskByID returns one task in full (description included) together with
+	// the id of the board it belongs to — the board id is what lets a
+	// token-scoped caller check the task is actually on the board behind the
+	// token (tasks TSK-13) without a second round trip. Returns
+	// domain.ErrTaskNotFound if no such task exists.
+	TaskByID(ctx context.Context, taskID uuid.UUID) (*domain.Task, uuid.UUID, error)
+
+	// ListComments returns a task's comments, oldest first (tasks TSK-08),
+	// via idx_task_comments_task_id_created_at. An unknown task id yields an
+	// empty slice, not an error — the caller has already resolved the task.
+	ListComments(ctx context.Context, taskID uuid.UUID) ([]domain.Comment, error)
+
+	// InsertComment persists a new comment and returns the board id its task
+	// belongs to, for the board-scoped broadcast (boards BRD-05). Returns
+	// domain.ErrTaskNotFound if comment.TaskID does not exist.
+	InsertComment(ctx context.Context, comment *domain.Comment) (uuid.UUID, error)
+
+	// DeleteComment hard-deletes a comment that belongs to taskID (tasks
+	// TSK-10) and returns the board id its task sits on. The task is part of
+	// the key, not context: the route names both ids, and a delete that
+	// ignored the task would let any comment be removed through any task's
+	// path. Returns domain.ErrCommentNotFound if no such comment exists under
+	// that task.
+	DeleteComment(ctx context.Context, taskID, commentID uuid.UUID) (uuid.UUID, error)
+
+	// UpdateTask persists edits to an existing task's details (title,
+	// assignee, description, priority, due date) and fills task with the
+	// stored row's remaining fields (column_id, created_at, updated_at), so
+	// the caller holds a complete Task; it also
 	// returns the task's board id, so the caller knows which board's SSE
 	// bucket to notify (boards BRD-05). Returns domain.ErrTaskNotFound if no
 	// such task exists.

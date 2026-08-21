@@ -8,6 +8,10 @@ const task: Task = {
   column_id: "col-1",
   title: "Write the report",
   assignee: null,
+  priority: "medium",
+  due_date: null,
+  has_description: false,
+  comment_count: 0,
   created_at: "2026-08-20T00:00:00Z",
   updated_at: "2026-08-20T00:00:00Z",
 };
@@ -181,5 +185,88 @@ describe("TaskCard — pointer drag gesture", () => {
     fireEvent.click(card);
     expect(onDragEnd).not.toHaveBeenCalled();
     expect(onClick).not.toHaveBeenCalled();
+  });
+});
+
+// tasks T10 — the card's markers (TSK-03/TSK-05/TSK-06/TSK-08). The card
+// shows markers, never content: no description text and no comment text ever
+// reaches a column.
+describe("TaskCard — markers", () => {
+  const card = (overrides: Partial<Task> = {}): Task => ({ ...task, ...overrides });
+
+  it("draws a distinct priority marker for each priority (TSK-03)", () => {
+    const seen = new Set<string>();
+
+    for (const priority of ["low", "medium", "high"] as const) {
+      const { container, unmount } = render(<TaskCard task={card({ priority })} />);
+      const dot = container.querySelector(`[data-priority="${priority}"]`);
+      expect(dot).not.toBeNull();
+      seen.add(dot!.className);
+      unmount();
+    }
+
+    expect(seen.size).toBe(3);
+  });
+
+  it("shows a due-date badge, marked overdue only for a past deadline (TSK-05/TSK-06)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 10, 12, 0, 0)); // 2026-09-10
+
+    const future = render(<TaskCard task={card({ due_date: "2026-09-20" })} />);
+    const futureBadge = future.container.querySelector('[data-slot="due-badge"]')!;
+    expect(futureBadge).toHaveTextContent("20 вер");
+    expect(futureBadge.getAttribute("data-overdue")).toBeNull();
+    expect(futureBadge.className).not.toContain("destructive");
+    future.unmount();
+
+    const past = render(<TaskCard task={card({ due_date: "2026-09-01" })} />);
+    const pastBadge = past.container.querySelector('[data-slot="due-badge"]')!;
+    expect(pastBadge.getAttribute("data-overdue")).toBe("true");
+    expect(pastBadge.className).toContain("destructive");
+    past.unmount();
+
+    vi.useRealTimers();
+  });
+
+  it("omits the due-date badge when there is no deadline", () => {
+    const { container } = render(<TaskCard task={card({ due_date: null })} />);
+    expect(container.querySelector('[data-slot="due-badge"]')).toBeNull();
+  });
+
+  it("shows the description marker only when the task has one (TSK-01)", () => {
+    const without = render(<TaskCard task={card({ has_description: false })} />);
+    expect(without.container.querySelector('[data-slot="has-description"]')).toBeNull();
+    without.unmount();
+
+    const withDescription = render(<TaskCard task={card({ has_description: true })} />);
+    expect(withDescription.container.querySelector('[data-slot="has-description"]')).not.toBeNull();
+  });
+
+  it("shows the comment count only when there are comments (TSK-08)", () => {
+    const none = render(<TaskCard task={card({ comment_count: 0 })} />);
+    expect(none.container.querySelector('[data-slot="comment-count"]')).toBeNull();
+    none.unmount();
+
+    const some = render(<TaskCard task={card({ comment_count: 3 })} />);
+    expect(some.container.querySelector('[data-slot="comment-count"]')).toHaveTextContent("3");
+  });
+
+  // The ghost is a clone of the same visual, so a marker added to one must
+  // appear in the other — that is the whole point of sharing TaskCardVisual.
+  it("carries the markers into the drag ghost too", () => {
+    const { container } = render(
+      <TaskCard
+        task={card({ priority: "high", comment_count: 2, has_description: true })}
+        onClick={vi.fn()}
+      />,
+    );
+
+    dragPast(container.querySelector('[data-slot="card"]') as HTMLElement);
+
+    const ghost = document.querySelector('[data-slot="drag-ghost-card"]');
+    expect(ghost).not.toBeNull();
+    expect(ghost!.querySelector('[data-priority="high"]')).not.toBeNull();
+    expect(ghost!.querySelector('[data-slot="comment-count"]')).toHaveTextContent("2");
+    expect(ghost!.querySelector('[data-slot="has-description"]')).not.toBeNull();
   });
 });

@@ -51,7 +51,7 @@ func (s *BoardService) CreateBoard(ctx context.Context, name string) (*ports.Boa
 		Columns:   make([]ports.ColumnState, 0, len(columns)),
 	}
 	for _, col := range columns {
-		state.Columns = append(state.Columns, ports.ColumnState{Column: col, Tasks: []domain.Task{}})
+		state.Columns = append(state.Columns, ports.ColumnState{Column: col, Tasks: []ports.TaskListItem{}})
 	}
 	return state, nil
 }

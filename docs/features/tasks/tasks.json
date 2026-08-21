@@ -1,0 +1,141 @@
+{
+  "slug": "tasks",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Promote the staged task-details and task_comments migrations into the live tree",
+      "layer": "migration",
+      "deps": [],
+      "acs": [],
+      "dod": "both paired migrations apply cleanly on top of 000012 and revert cleanly in reverse order; existing task rows get description '' and priority 'medium'; the priority CHECK rejects a value outside low/medium/high",
+      "files_hint": [
+        "docs/features/tasks/migrations/01_add_task_details.up.sql",
+        "docs/features/tasks/migrations/01_add_task_details.down.sql",
+        "docs/features/tasks/migrations/02_create_task_comments.up.sql",
+        "docs/features/tasks/migrations/02_create_task_comments.down.sql",
+        "api/migrations/"
+      ]
+    },
+    {
+      "id": "T2",
+      "title": "Extend the task domain with description, priority, due date and the Comment entity",
+      "layer": "domain",
+      "deps": [],
+      "acs": ["TSK-01", "TSK-02", "TSK-03", "TSK-04", "TSK-05", "TSK-07", "TSK-09"],
+      "dod": "unit tests: description over 4000 runes rejected and exactly 4000 accepted (TSK-02); priority outside low/medium/high rejected, empty means medium (TSK-03/TSK-04); a nil due date is legal and clearable (TSK-05/TSK-07); comment author/body empty or over 200/2000 runes rejected (TSK-09); no framework imports",
+      "files_hint": ["api/internal/modules/board/domain/domain.go"]
+    },
+    {
+      "id": "T3",
+      "title": "Persist task details and comments; carry the card fields in board state",
+      "layer": "infra",
+      "deps": ["T1", "T2"],
+      "acs": ["TSK-01", "TSK-05", "TSK-08", "TSK-10", "TSK-11"],
+      "dod": "integration tests: a task round-trips description/priority/due_date; board state carries has_description + comment_count and NO description body; comments insert/list (oldest first)/delete; deleting a task removes its comments (TSK-11); a task lookup returns its board id so callers can scope by board",
+      "files_hint": [
+        "api/internal/modules/board/ports/repo.go",
+        "api/internal/modules/board/infra/postgres_repo.go"
+      ]
+    },
+    {
+      "id": "T4",
+      "title": "Task use-cases accept details; state reads serve task detail (editor + token-scoped)",
+      "layer": "app",
+      "deps": ["T2", "T3"],
+      "acs": ["TSK-01", "TSK-03", "TSK-05", "TSK-07", "TSK-12", "TSK-13", "TSK-14"],
+      "dod": "unit tests (repo faked through the port): create/edit carry the new fields and still broadcast exactly once to the task's board (TSK-14); GetTaskDetail returns task + comments; GetPublicTaskDetail refuses a task whose board differs from the token's board with the same error as an unknown token (TSK-13)",
+      "files_hint": [
+        "api/internal/modules/board/app/task_service.go",
+        "api/internal/modules/board/app/state_service.go"
+      ]
+    },
+    {
+      "id": "T5",
+      "title": "Implement the comment use-cases (add, delete) with board-scoped broadcast",
+      "layer": "app",
+      "deps": ["T2", "T3"],
+      "acs": ["TSK-08", "TSK-09", "TSK-10", "TSK-14"],
+      "dod": "unit tests: a valid comment is persisted and broadcasts board.state_changed to exactly the task's board; an invalid author/body is rejected before any repository write (TSK-09); delete broadcasts the same way (TSK-10)",
+      "files_hint": ["api/internal/modules/board/app/comment_service.go"]
+    },
+    {
+      "id": "T6",
+      "title": "Extend the task HTTP surface: detail GET and the new fields on create/edit",
+      "layer": "ports",
+      "deps": ["T4"],
+      "acs": ["TSK-01", "TSK-02", "TSK-03", "TSK-04", "TSK-05", "TSK-07"],
+      "dod": "integration tests: GET /api/v1/tasks/{taskId} returns TaskDetail; create/edit accept description/priority/due_date and echo them; a malformed due_date returns 400 validation.invalid_due_date; an over-long description returns 422 task.description_too_long; an unknown priority returns 422 task.priority_invalid",
+      "files_hint": [
+        "api/internal/modules/board/ports/task_handler.go",
+        "api/internal/modules/board/ports/dto.go",
+        "api/internal/modules/board/ports/errors.go"
+      ]
+    },
+    {
+      "id": "T7",
+      "title": "Add the comment routes (list, add, delete)",
+      "layer": "ports",
+      "deps": ["T5"],
+      "acs": ["TSK-08", "TSK-09", "TSK-10"],
+      "dod": "integration tests: POST returns 201 with the created comment, GET returns them oldest first, DELETE returns 204 and the comment is gone; an unknown task returns 404 task.not_found (never a raw FK 500); an unknown comment returns 404 comment.not_found",
+      "files_hint": ["api/internal/modules/board/ports/comment_handler.go"]
+    },
+    {
+      "id": "T8",
+      "title": "Serve public task details in the 300/min tier and wire the new handlers",
+      "layer": "ports",
+      "deps": ["T4", "T6", "T7"],
+      "acs": ["TSK-12", "TSK-13"],
+      "dod": "integration tests through the real server.New: GET /api/v1/public/{token}/tasks/{taskId} returns the detail with no board_id/public_link leak, a task of another board returns 404 board.link_invalid (TSK-13), the route sits in the 300/min tier (the 61st request still passes, the 301st does not), and no mutating comment route exists under the public token",
+      "files_hint": [
+        "api/internal/modules/board/ports/public_handler.go",
+        "api/internal/modules/board/board.go"
+      ]
+    },
+    {
+      "id": "T9",
+      "title": "Extend the web API layer with the task detail and comment endpoints",
+      "layer": "ui",
+      "deps": ["T6", "T7", "T8"],
+      "acs": [],
+      "dod": "types mirror the contract (TaskCard on the board, Task with description in detail responses); boardApi gains getTask/getPublicTask/addComment/deleteComment and passes the new fields on create/edit; unit tests pin the request shapes; typecheck clean",
+      "files_hint": [
+        "web/src/features/board/api/types.ts",
+        "web/src/features/board/api/boardApi.ts"
+      ]
+    },
+    {
+      "id": "T10",
+      "title": "Show the card markers: priority, due date, description, comment count",
+      "layer": "ui",
+      "deps": ["T9"],
+      "acs": ["TSK-03", "TSK-05", "TSK-06", "TSK-08"],
+      "dod": "component tests: the priority marker reflects the task's priority; a due date renders as a badge and a past one renders with the destructive token (TSK-06); the description icon only appears when has_description; the comment count only appears when comment_count > 0; markers render in the drag ghost too; tokens only, no hardcoded colours",
+      "files_hint": ["web/src/features/board/ui/TaskCard.tsx"]
+    },
+    {
+      "id": "T11",
+      "title": "Build the task details modal (editor) and its read-only viewer twin",
+      "layer": "ui",
+      "deps": ["T9", "T10"],
+      "acs": ["TSK-01", "TSK-02", "TSK-08", "TSK-09", "TSK-10", "TSK-12"],
+      "dod": "component tests: the editor modal loads the detail, edits title/description/priority/due date/assignee and saves; the comment form pre-fills the logged-in name, posts and shows the new comment, blocks an empty one, deletes a comment; the viewer modal renders the same content with no input, no comment form and no delete; delete-the-task stays where it was",
+      "files_hint": [
+        "web/src/features/board/ui/TaskDetailsModal.tsx",
+        "web/src/features/board/ui/TaskComments.tsx",
+        "web/src/pages/board/ui/BoardPage.tsx",
+        "web/src/pages/board-public/ui/BoardPublicPage.tsx",
+        "web/src/features/board/ui/Column.tsx"
+      ]
+    },
+    {
+      "id": "T12",
+      "title": "End-to-end flow through the real UI plus the changelog entry",
+      "layer": "ui",
+      "deps": ["T10", "T11"],
+      "acs": ["TSK-01", "TSK-03", "TSK-05", "TSK-08", "TSK-12"],
+      "dod": "one Playwright spec drives create task → open details → description + priority + due date + comment → markers visible on the card → the same details read-only through a public link; CHANGELOG.md gains a partner-facing section in the existing style",
+      "files_hint": ["web/e2e/task-details.spec.ts", "CHANGELOG.md"]
+    }
+  ]
+}

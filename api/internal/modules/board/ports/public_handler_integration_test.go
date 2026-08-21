@@ -131,7 +131,7 @@ func TestGetPublicBoard_ValidToken_ReturnsPublicBoardState(t *testing.T) {
 	// infra/postgres_repo_integration_test.go's own seeding pattern.
 	leftmostID, err := f.repo.LeftmostColumnID(ctx, t10SeedBoardID)
 	require.NoError(t, err)
-	task, err := domain.NewTask(leftmostID, "Write the report", nil)
+	task, err := domain.NewTask(leftmostID, domain.TaskDetails{Title: "Write the report"})
 	require.NoError(t, err)
 	require.NoError(t, f.repo.InsertTask(ctx, task))
 

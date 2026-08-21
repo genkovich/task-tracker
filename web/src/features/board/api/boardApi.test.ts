@@ -252,6 +252,102 @@ describe("boardApi.moveTask", () => {
   });
 });
 
+describe("boardApi — task details and comments (tasks feature)", () => {
+  it("GETs the detail from /api/v1/tasks/{taskId}", async () => {
+    const detail = {
+      task: { id: "task-1", title: "Detailed", description: "body", priority: "high" },
+      comments: [],
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(detail));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await boardApi.getTask("task-1");
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/tasks/task-1`);
+    expect(options?.method ?? "GET").toBe("GET");
+    expect(result).toEqual(detail);
+  });
+
+  it("GETs the viewer's detail from /api/v1/public/{token}/tasks/{taskId}, both segments encoded", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ task: {}, comments: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await boardApi.getPublicTask("tok/../evil", "id with/slash");
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toBe(
+      `${BASE_URL}/api/v1/public/${encodeURIComponent("tok/../evil")}/tasks/${encodeURIComponent("id with/slash")}`,
+    );
+  });
+
+  it("POSTs a comment to /api/v1/tasks/{taskId}/comments", async () => {
+    const created = {
+      id: "c-1",
+      task_id: "task-1",
+      author: "Ada",
+      body: "note",
+      created_at: "2026-08-21T10:00:00Z",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(created, 201));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await boardApi.addComment("task-1", { author: "Ada", body: "note" });
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/tasks/task-1/comments`);
+    expect(options.method).toBe("POST");
+    expect(JSON.parse(options.body)).toEqual({ author: "Ada", body: "note" });
+    expect(result).toEqual(created);
+  });
+
+  it("DELETEs /api/v1/tasks/{taskId}/comments/{commentId}", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 204, json: () => Promise.resolve(undefined) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await boardApi.deleteComment("task-1", "c-1");
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/tasks/task-1/comments/c-1`);
+    expect(options.method).toBe("DELETE");
+  });
+
+  it("sends the detail fields on create and on edit", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}, 201));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await boardApi.createTask({
+      board_id: "board-1",
+      title: "Detailed",
+      description: "body",
+      priority: "high",
+      due_date: "2026-09-01",
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      board_id: "board-1",
+      title: "Detailed",
+      description: "body",
+      priority: "high",
+      due_date: "2026-09-01",
+    });
+
+    await boardApi.editTask("task-1", {
+      title: "Detailed",
+      description: "new body",
+      priority: "low",
+      due_date: null,
+    });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+      title: "Detailed",
+      description: "new body",
+      priority: "low",
+      due_date: null,
+    });
+  });
+});
+
 describe("boardApi.deleteTask", () => {
   it("DELETEs /api/v1/tasks/{taskId} and resolves with no content", async () => {
     const fetchMock = vi

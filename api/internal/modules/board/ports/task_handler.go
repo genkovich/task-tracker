@@ -23,21 +23,29 @@ const taskCreateRateLimit = 30
 // TaskAppService is the task use-case port TaskHandler depends on
 // (create/edit/move/delete, AC-01..AC-06) — satisfied by app.TaskService.
 type TaskAppService interface {
-	CreateTask(ctx context.Context, boardID uuid.UUID, title string, assignee *string) (*domain.Task, error)
-	EditTask(ctx context.Context, taskID uuid.UUID, title string, assignee *string) (*domain.Task, error)
+	CreateTask(ctx context.Context, boardID uuid.UUID, details domain.TaskDetails) (*domain.Task, error)
+	EditTask(ctx context.Context, taskID uuid.UUID, details domain.TaskDetails) (*domain.Task, error)
 	MoveTask(ctx context.Context, taskID, columnID uuid.UUID) (*domain.Task, error)
 	DeleteTask(ctx context.Context, taskID uuid.UUID) error
 }
 
-// TaskHandler serves the team-editor task CRUD + move routes
-// (contracts/openapi.yaml createTask/editTask/deleteTask/moveTask).
-type TaskHandler struct {
-	taskService TaskAppService
+// TaskDetailService is the task-detail read port TaskHandler depends on
+// (tasks TSK-01/TSK-08) — satisfied by app.StateService.
+type TaskDetailService interface {
+	GetTaskDetail(ctx context.Context, taskID uuid.UUID) (*TaskDetail, error)
 }
 
-// NewTaskHandler wires a TaskHandler against the given task service.
-func NewTaskHandler(taskService TaskAppService) *TaskHandler {
-	return &TaskHandler{taskService: taskService}
+// TaskHandler serves the team-editor task CRUD + move + detail routes
+// (contracts/openapi.yaml createTask/editTask/deleteTask/moveTask/getTask).
+type TaskHandler struct {
+	taskService   TaskAppService
+	detailService TaskDetailService
+}
+
+// NewTaskHandler wires a TaskHandler against the given task and detail
+// services.
+func NewTaskHandler(taskService TaskAppService, detailService TaskDetailService) *TaskHandler {
+	return &TaskHandler{taskService: taskService, detailService: detailService}
 }
 
 // RegisterRoutes mounts the team-editor task routes, relative to the
@@ -58,9 +66,21 @@ func (h *TaskHandler) RegisterRoutes(r chi.Router) {
 		r.Post("/tasks", h.handleCreateTask)
 	})
 
+	r.Get("/tasks/{taskId}", h.handleGetTask)
 	r.Patch("/tasks/{taskId}", h.handleEditTask)
 	r.Delete("/tasks/{taskId}", h.handleDeleteTask)
 	r.Post("/tasks/{taskId}/move", h.handleMoveTask)
+}
+
+// parseTaskID reads the {taskId} path param; on a non-UUID value it writes
+// the documented 400 validation.invalid_task_id and reports !ok.
+func parseTaskID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	taskID, err := uuid.Parse(chi.URLParam(r, "taskId"))
+	if err != nil {
+		httputil.WriteValidationError(w, "validation.invalid_task_id", "invalid task id")
+		return uuid.Nil, false
+	}
+	return taskID, true
 }
 
 // handleTaskRateLimited writes the documented 429 task.rate_limited body
@@ -96,13 +116,47 @@ func (h *TaskHandler) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, err := h.taskService.CreateTask(r.Context(), boardID, req.Title, req.Assignee)
+	dueDate, err := parseDueDate(req.DueDate)
+	if err != nil {
+		httputil.WriteValidationError(w, "validation.invalid_due_date", "due date must be a calendar day (YYYY-MM-DD)")
+		return
+	}
+
+	task, err := h.taskService.CreateTask(r.Context(), boardID, domain.TaskDetails{
+		Title:       req.Title,
+		Assignee:    req.Assignee,
+		Description: req.Description,
+		Priority:    req.Priority,
+		DueDate:     dueDate,
+	})
 	if err != nil {
 		httputil.WriteError(w, mapTaskError(err))
 		return
 	}
 
 	httputil.WriteJSON(w, toTaskResponse(task), http.StatusCreated)
+}
+
+// @Summary  Get task detail
+// @Tags     board
+// @Produce  json
+// @Param    taskId path     string true "Task id"
+// @Success  200    {object} TaskDetailResponse
+// @Failure  404    {object} httputil.ErrorResponse
+// @Router   /tasks/{taskId} [get]
+func (h *TaskHandler) handleGetTask(w http.ResponseWriter, r *http.Request) {
+	taskID, ok := parseTaskID(w, r)
+	if !ok {
+		return
+	}
+
+	detail, err := h.detailService.GetTaskDetail(r.Context(), taskID)
+	if err != nil {
+		httputil.WriteError(w, mapTaskError(err))
+		return
+	}
+
+	httputil.WriteJSON(w, toTaskDetailResponse(detail), http.StatusOK)
 }
 
 // @Summary  Edit task
@@ -114,9 +168,8 @@ func (h *TaskHandler) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 // @Failure  422 {object} httputil.ErrorResponse
 // @Router   /tasks/{taskId} [patch]
 func (h *TaskHandler) handleEditTask(w http.ResponseWriter, r *http.Request) {
-	taskID, err := uuid.Parse(chi.URLParam(r, "taskId"))
-	if err != nil {
-		httputil.WriteValidationError(w, "validation.invalid_task_id", "invalid task id")
+	taskID, ok := parseTaskID(w, r)
+	if !ok {
 		return
 	}
 
@@ -126,7 +179,19 @@ func (h *TaskHandler) handleEditTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, err := h.taskService.EditTask(r.Context(), taskID, req.Title, req.Assignee)
+	dueDate, err := parseDueDate(req.DueDate)
+	if err != nil {
+		httputil.WriteValidationError(w, "validation.invalid_due_date", "due date must be a calendar day (YYYY-MM-DD)")
+		return
+	}
+
+	task, err := h.taskService.EditTask(r.Context(), taskID, domain.TaskDetails{
+		Title:       req.Title,
+		Assignee:    req.Assignee,
+		Description: req.Description,
+		Priority:    req.Priority,
+		DueDate:     dueDate,
+	})
 	if err != nil {
 		httputil.WriteError(w, mapTaskError(err))
 		return
@@ -141,9 +206,8 @@ func (h *TaskHandler) handleEditTask(w http.ResponseWriter, r *http.Request) {
 // @Failure  404 {object} httputil.ErrorResponse
 // @Router   /tasks/{taskId} [delete]
 func (h *TaskHandler) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
-	taskID, err := uuid.Parse(chi.URLParam(r, "taskId"))
-	if err != nil {
-		httputil.WriteValidationError(w, "validation.invalid_task_id", "invalid task id")
+	taskID, ok := parseTaskID(w, r)
+	if !ok {
 		return
 	}
 
@@ -164,9 +228,8 @@ func (h *TaskHandler) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 // @Failure  422 {object} httputil.ErrorResponse
 // @Router   /tasks/{taskId}/move [post]
 func (h *TaskHandler) handleMoveTask(w http.ResponseWriter, r *http.Request) {
-	taskID, err := uuid.Parse(chi.URLParam(r, "taskId"))
-	if err != nil {
-		httputil.WriteValidationError(w, "validation.invalid_task_id", "invalid task id")
+	taskID, ok := parseTaskID(w, r)
+	if !ok {
 		return
 	}
 
@@ -189,15 +252,4 @@ func (h *TaskHandler) handleMoveTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, toTaskResponse(task), http.StatusOK)
-}
-
-func toTaskResponse(task *domain.Task) TaskResponse {
-	return TaskResponse{
-		ID:        task.ID.String(),
-		ColumnID:  task.ColumnID.String(),
-		Title:     task.Title,
-		Assignee:  task.Assignee,
-		CreatedAt: task.CreatedAt,
-		UpdatedAt: task.UpdatedAt,
-	}
 }

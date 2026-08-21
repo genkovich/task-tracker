@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -15,9 +14,11 @@ import (
 )
 
 // PublicStateService is the read-only, token-scoped port PublicHandler
-// depends on (AC-09/AC-11) — satisfied by app.StateService.
+// depends on (AC-09/AC-11, tasks TSK-12/TSK-13) — satisfied by
+// app.StateService.
 type PublicStateService interface {
 	GetPublicBoardState(ctx context.Context, token string) (*PublicBoardState, error)
+	GetPublicTaskDetail(ctx context.Context, token string, taskID uuid.UUID) (*TaskDetail, error)
 }
 
 // PublicHandler serves the read-only public-viewer routes (AC-09, AC-11).
@@ -38,6 +39,7 @@ func NewPublicHandler(stateService PublicStateService) *PublicHandler {
 // point (the server's shared /api/v1 registrar group).
 func (h *PublicHandler) RegisterRoutes(r chi.Router) {
 	r.Get("/public/{token}/board", h.handleGetPublicBoard)
+	r.Get("/public/{token}/tasks/{taskId}", h.handleGetPublicTask)
 }
 
 // @Summary  Get public board state
@@ -62,6 +64,32 @@ func (h *PublicHandler) handleGetPublicBoard(w http.ResponseWriter, r *http.Requ
 	}
 
 	httputil.WriteJSON(w, toPublicBoardStateResponse(state), http.StatusOK)
+}
+
+// @Summary  Get public task detail
+// @Tags     public
+// @Produce  json
+// @Param    token  path     string true "Public link token"
+// @Param    taskId path     string true "Task id"
+// @Success  200    {object} TaskDetailResponse
+// @Failure  404    {object} httputil.ErrorResponse
+// @Router   /public/{token}/tasks/{taskId} [get]
+func (h *PublicHandler) handleGetPublicTask(w http.ResponseWriter, r *http.Request) {
+	setNoIndexHeader(w)
+	w.Header().Set("Cache-Control", "no-store")
+
+	taskID, ok := parseTaskID(w, r)
+	if !ok {
+		return
+	}
+
+	detail, err := h.stateService.GetPublicTaskDetail(r.Context(), chi.URLParam(r, "token"), taskID)
+	if err != nil {
+		httputil.WriteError(w, mapPublicError(err))
+		return
+	}
+
+	httputil.WriteJSON(w, toTaskDetailResponse(detail), http.StatusOK)
 }
 
 // setNoIndexHeader marks a public (token-scoped) response as not indexable:
@@ -94,22 +122,13 @@ type PublicBoardStateResponse struct {
 	Columns []PublicColumnResponse `json:"columns"`
 }
 
-// PublicColumnResponse mirrors the Column schema (contracts/openapi.yaml).
+// PublicColumnResponse mirrors the Column schema (tasks contract) — its tasks
+// are TaskCard, not Task.
 type PublicColumnResponse struct {
-	ID       uuid.UUID            `json:"id"`
-	Name     string               `json:"name"`
-	Position int16                `json:"position"`
-	Tasks    []PublicTaskResponse `json:"tasks"`
-}
-
-// PublicTaskResponse mirrors the Task schema (contracts/openapi.yaml).
-type PublicTaskResponse struct {
-	ID        uuid.UUID `json:"id"`
-	ColumnID  uuid.UUID `json:"column_id"`
-	Title     string    `json:"title"`
-	Assignee  *string   `json:"assignee"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID       uuid.UUID          `json:"id"`
+	Name     string             `json:"name"`
+	Position int16              `json:"position"`
+	Tasks    []TaskCardResponse `json:"tasks"`
 }
 
 func toPublicBoardStateResponse(state *PublicBoardState) PublicBoardStateResponse {
@@ -125,16 +144,20 @@ func toPublicColumnResponse(col ColumnState) PublicColumnResponse {
 		ID:       col.ID,
 		Name:     col.Name,
 		Position: col.Position,
-		Tasks:    make([]PublicTaskResponse, 0, len(col.Tasks)),
+		Tasks:    make([]TaskCardResponse, 0, len(col.Tasks)),
 	}
 	for _, tk := range col.Tasks {
-		resp.Tasks = append(resp.Tasks, PublicTaskResponse{
-			ID:        tk.ID,
-			ColumnID:  tk.ColumnID,
-			Title:     tk.Title,
-			Assignee:  tk.Assignee,
-			CreatedAt: tk.CreatedAt,
-			UpdatedAt: tk.UpdatedAt,
+		resp.Tasks = append(resp.Tasks, TaskCardResponse{
+			ID:             tk.ID,
+			ColumnID:       tk.ColumnID,
+			Title:          tk.Title,
+			Assignee:       tk.Assignee,
+			Priority:       string(tk.Priority),
+			DueDate:        formatDueDate(tk.DueDate),
+			HasDescription: tk.HasDescription,
+			CommentCount:   tk.CommentCount,
+			CreatedAt:      tk.CreatedAt,
+			UpdatedAt:      tk.UpdatedAt,
 		})
 	}
 	return resp

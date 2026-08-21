@@ -91,7 +91,7 @@ func TestPostgresRepository_InsertTask_LandsInLeftmostColumn(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, seedColumnToDoID, leftmostID, "LeftmostColumnID should resolve to the position=0 seeded column (\"To Do\")")
 
-	task, err := domain.NewTask(leftmostID, "Write the report", nil)
+	task, err := domain.NewTask(leftmostID, domain.TaskDetails{Title: "Write the report"})
 	require.NoError(t, err)
 
 	err = f.repo.InsertTask(ctx, task)
@@ -108,7 +108,7 @@ func TestPostgresRepository_MoveTask_UpdatesColumnID(t *testing.T) {
 	f := setupRepo(t)
 	ctx := context.Background()
 
-	task, err := domain.NewTask(seedColumnToDoID, "Move me", nil)
+	task, err := domain.NewTask(seedColumnToDoID, domain.TaskDetails{Title: "Move me"})
 	require.NoError(t, err)
 	require.NoError(t, f.repo.InsertTask(ctx, task))
 
@@ -137,7 +137,7 @@ func TestPostgresRepository_MoveTask_NonexistentColumn_ReturnsErrColumnNotFound(
 	f := setupRepo(t)
 	ctx := context.Background()
 
-	task, err := domain.NewTask(seedColumnToDoID, "Stay put", nil)
+	task, err := domain.NewTask(seedColumnToDoID, domain.TaskDetails{Title: "Stay put"})
 	require.NoError(t, err)
 	require.NoError(t, f.repo.InsertTask(ctx, task))
 
@@ -159,7 +159,7 @@ func TestPostgresRepository_DeleteTask_HardDeletesRow(t *testing.T) {
 	f := setupRepo(t)
 	ctx := context.Background()
 
-	task, err := domain.NewTask(seedColumnToDoID, "Delete me", nil)
+	task, err := domain.NewTask(seedColumnToDoID, domain.TaskDetails{Title: "Delete me"})
 	require.NoError(t, err)
 	require.NoError(t, f.repo.InsertTask(ctx, task))
 

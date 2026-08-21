@@ -26,6 +26,10 @@ function makeColumns(): Column[] {
           column_id: "col-todo",
           title: "Test task",
           assignee: null,
+          priority: "medium",
+          due_date: null,
+          has_description: false,
+          comment_count: 0,
           created_at: "2026-08-20T00:00:00Z",
           updated_at: "2026-08-20T00:00:00Z",
         },
@@ -46,10 +50,9 @@ function makeColumns(): Column[] {
 describe("useBoardDnd — syncs to fresh initialColumns without a remount (re2 #3)", () => {
   it("adopts new initialColumns when the hook rerenders with a fresh reference", () => {
     const moveTask = vi.fn();
-    const { result, rerender } = renderHook(
-      ({ columns }) => useBoardDnd(columns, { moveTask }),
-      { initialProps: { columns: makeColumns() } },
-    );
+    const { result, rerender } = renderHook(({ columns }) => useBoardDnd(columns, { moveTask }), {
+      initialProps: { columns: makeColumns() },
+    });
 
     const fresh = makeColumns();
     fresh[0].tasks.push({
@@ -57,6 +60,10 @@ describe("useBoardDnd — syncs to fresh initialColumns without a remount (re2 #
       column_id: "col-todo",
       title: "New from server",
       assignee: null,
+      priority: "medium",
+      due_date: null,
+      has_description: false,
+      comment_count: 0,
       created_at: "2026-08-20T00:05:00Z",
       updated_at: "2026-08-20T00:05:00Z",
     });
@@ -78,10 +85,9 @@ describe("useBoardDnd — syncs to fresh initialColumns without a remount (re2 #
       }),
     );
 
-    const { result, rerender } = renderHook(
-      ({ columns }) => useBoardDnd(columns, { moveTask }),
-      { initialProps: { columns: makeColumns() } },
-    );
+    const { result, rerender } = renderHook(({ columns }) => useBoardDnd(columns, { moveTask }), {
+      initialProps: { columns: makeColumns() },
+    });
 
     act(() => {
       result.current.handleDrop("task-1", "col-doing");
@@ -283,9 +289,9 @@ describe("useBoardDnd", () => {
     });
 
     // Immediately after the drop, the optimistic move is visible.
-    expect(result.current.columns.find((c) => c.id === "col-doing")!.tasks.map((t) => t.id)).toEqual([
-      "task-1",
-    ]);
+    expect(
+      result.current.columns.find((c) => c.id === "col-doing")!.tasks.map((t) => t.id),
+    ).toEqual(["task-1"]);
 
     await waitFor(() => {
       const todo = result.current.columns.find((c) => c.id === "col-todo")!;
