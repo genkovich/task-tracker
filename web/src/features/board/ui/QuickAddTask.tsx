@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { boardApi } from "@/features/board/api/boardApi";
 import type { Task } from "@/features/board/api/types";
+import { showApiError } from "@/shared/lib/showApiError";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
@@ -35,6 +36,8 @@ export function QuickAddTask({ onCreated }: QuickAddTaskProps) {
       const created = await boardApi.createTask({ title: trimmedTitle });
       onCreated(created);
       setTitle("");
+    } catch (err) {
+      showApiError(err);
     } finally {
       setSubmitting(false);
     }

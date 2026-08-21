@@ -11,6 +11,7 @@ import {
 import type { Route } from "./+types/root";
 import { Providers } from "@/app/providers";
 import { Button } from "@/shared/ui/button";
+import { Toaster } from "@/shared/ui/sonner";
 import { Wordmark } from "@/shared/ui/Wordmark";
 import "@fontsource-variable/jetbrains-mono";
 import "@fontsource-variable/space-grotesk";
@@ -41,6 +42,9 @@ export default function App() {
   return (
     <Providers>
       <Outlet />
+      {/* Global: board pages live outside ProtectedLayout but still surface
+       * mutation errors through showApiError -> toast. */}
+      <Toaster />
     </Providers>
   );
 }

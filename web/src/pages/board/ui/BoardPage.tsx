@@ -5,6 +5,7 @@ import { boardApi } from "@/features/board/api/boardApi";
 import { useBoardEvents } from "@/features/board/api/useBoardEvents";
 import { useBoardDnd } from "@/features/board/model/useBoardDnd";
 import type { BoardState, Task } from "@/features/board/api/types";
+import { BoardLoadError, BoardLoading } from "@/features/board/ui/BoardLoadState";
 import { Column } from "@/features/board/ui/Column";
 import { EditTaskModal } from "@/features/board/ui/EditTaskModal";
 import { PublicLinkPanel } from "@/features/public-link/ui/PublicLinkPanel";
@@ -17,14 +18,19 @@ export const meta: Route.MetaFunction = () => [{ title: "Дошка — Task Tra
  * goes through boardApi / useBoardEvents / useBoardDnd. */
 export default function BoardPage() {
   const [board, setBoard] = useState<BoardState | null>(null);
+  const [failed, setFailed] = useState(false);
   const [version, setVersion] = useState(0);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
   const refetch = useCallback(() => {
-    boardApi.getBoard().then((state) => {
-      setBoard(state);
-      setVersion((v) => v + 1);
-    });
+    boardApi
+      .getBoard()
+      .then((state) => {
+        setBoard(state);
+        setFailed(false);
+        setVersion((v) => v + 1);
+      })
+      .catch(() => setFailed(true));
   }, []);
 
   useEffect(() => {
@@ -33,7 +39,21 @@ export default function BoardPage() {
 
   useBoardEvents(refetch);
 
-  if (!board) return null;
+  if (failed) {
+    return (
+      <main className="flex h-screen flex-col p-4">
+        <BoardLoadError onRetry={refetch} />
+      </main>
+    );
+  }
+
+  if (!board) {
+    return (
+      <main className="flex h-screen flex-col p-4">
+        <BoardLoading />
+      </main>
+    );
+  }
 
   return (
     <main className="flex h-screen flex-col gap-4 p-4">

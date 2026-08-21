@@ -66,6 +66,51 @@ function renderPage(token = "valid-token-123") {
   );
 }
 
+// Review 2026-08-21 root I: only the 404 branch was handled — any other
+// failure (network, 500) rethrew into the void and left a white screen, and
+// there was no loading indicator. Mirror BoardPage's SCR-01 states here.
+describe("BoardPublicPage — loading and generic error states", () => {
+  it("shows a loading indicator while the public board fetch is pending", async () => {
+    let resolveBoard!: (value: unknown) => void;
+    mockGetPublicBoard.mockReturnValue(
+      new Promise((resolve) => {
+        resolveBoard = resolve;
+      }),
+    );
+
+    renderPage();
+
+    expect(screen.getByRole("status")).toBeInTheDocument();
+
+    resolveBoard(board);
+    await waitFor(() => {
+      expect(screen.getByText("To do")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("shows an error message with a retry action for a non-404 failure, not a white screen", async () => {
+    mockGetPublicBoard.mockRejectedValueOnce(
+      new ApiClientError("internal", "internal server error", 500),
+    );
+    mockGetPublicBoard.mockResolvedValueOnce(board);
+    const user = userEvent.setup();
+
+    renderPage();
+
+    expect(
+      await screen.findByText(/не вдалося завантажити дошку|couldn't load board/i),
+    ).toBeInTheDocument();
+    // A generic failure is not the SCR-06 unavailable state.
+    expect(screen.queryByText(/більше недоступний/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /спробувати ще|retry/i }));
+    await waitFor(() => {
+      expect(screen.getByText("To do")).toBeInTheDocument();
+    });
+  });
+});
+
 describe("BoardPublicPage — public read-only board view (SCR-05)", () => {
   // AC-09: a valid token shows the board's current state, all columns and
   // tasks, view-only. AC-10: no drag/edit/delete affordances are rendered —

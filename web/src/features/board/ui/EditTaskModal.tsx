@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { boardApi } from "@/features/board/api/boardApi";
 import type { Task } from "@/features/board/api/types";
+import { showApiError } from "@/shared/lib/showApiError";
 import { Button } from "@/shared/ui/button";
 import {
   Dialog,
@@ -51,6 +52,8 @@ export function EditTaskModal({
       });
       onSaved(updated);
       onOpenChange(false);
+    } catch (err) {
+      showApiError(err);
     } finally {
       setSaving(false);
     }
@@ -62,6 +65,8 @@ export function EditTaskModal({
       await boardApi.deleteTask(task.id);
       onDeleted(task.id);
       onOpenChange(false);
+    } catch (err) {
+      showApiError(err);
     } finally {
       setDeleting(false);
     }

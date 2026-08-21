@@ -6,6 +6,7 @@ import { boardApi } from "@/features/board/api/boardApi";
 import { usePublicBoardEvents } from "@/features/board/api/useBoardEvents";
 import { ApiClientError } from "@/shared/api/client";
 import type { PublicBoardState } from "@/features/board/api/types";
+import { BoardLoadError, BoardLoading } from "@/features/board/ui/BoardLoadState";
 import { Column } from "@/features/board/ui/Column";
 import { EmptyState } from "@/shared/ui/EmptyState";
 
@@ -18,17 +19,21 @@ export default function BoardPublicPage() {
   const { token = "" } = useParams<{ token: string }>();
   const [board, setBoard] = useState<PublicBoardState | null>(null);
   const [unavailable, setUnavailable] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   const refetch = useCallback(() => {
     boardApi
       .getPublicBoard(token)
-      .then((state) => setBoard(state))
+      .then((state) => {
+        setBoard(state);
+        setFailed(false);
+      })
       .catch((err) => {
         if (err instanceof ApiClientError && err.statusCode === 404) {
           setUnavailable(true);
           return;
         }
-        throw err;
+        setFailed(true);
       });
   }, [token]);
 
@@ -50,7 +55,21 @@ export default function BoardPublicPage() {
     );
   }
 
-  if (!board) return null;
+  if (failed) {
+    return (
+      <main className="flex h-screen flex-col p-4">
+        <BoardLoadError onRetry={refetch} />
+      </main>
+    );
+  }
+
+  if (!board) {
+    return (
+      <main className="flex h-screen flex-col p-4">
+        <BoardLoading />
+      </main>
+    );
+  }
 
   return (
     <main className="flex h-screen flex-col gap-4 p-4">

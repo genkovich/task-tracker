@@ -76,6 +76,53 @@ function renderPage() {
   );
 }
 
+// Review 2026-08-21 root I: a failed board fetch left the page as a silent
+// white screen (`return null`, no .catch). SCR-01 error/loading states
+// (Design/scr01-board-error-*.png, scr01-board-loading-*.png): a visible
+// loading indicator while fetching, and on failure a centered message with a
+// retry action that actually refetches.
+describe("BoardPage — loading and error states (SCR-01)", () => {
+  it("shows a loading indicator while the board fetch is pending", async () => {
+    let resolveBoard!: (value: unknown) => void;
+    mockGetBoard.mockReturnValue(
+      new Promise((resolve) => {
+        resolveBoard = resolve;
+      }),
+    );
+
+    renderPage();
+
+    expect(screen.getByRole("status")).toBeInTheDocument();
+
+    resolveBoard(board);
+    await waitFor(() => {
+      expect(screen.getByText("To do")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("shows an error message with a retry action instead of a white screen when the fetch fails", async () => {
+    mockGetBoard.mockRejectedValueOnce(new Error("network down"));
+    mockGetBoard.mockResolvedValueOnce(board);
+    const user = userEvent.setup();
+
+    renderPage();
+
+    expect(
+      await screen.findByText(/не вдалося завантажити дошку|couldn't load board/i),
+    ).toBeInTheDocument();
+
+    // Retry refetches and renders the board once the API recovers.
+    await user.click(screen.getByRole("button", { name: /спробувати ще|retry/i }));
+    await waitFor(() => {
+      expect(screen.getByText("To do")).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByText(/не вдалося завантажити дошку|couldn't load board/i),
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe("BoardPage — composes the team-editor board (SCR-01)", () => {
   // DoD: page composes T15's columns/cards/quick-add — sad.md §5 pages/board
   // "composes features/board". Fetching goes through boardApi.getBoard, and

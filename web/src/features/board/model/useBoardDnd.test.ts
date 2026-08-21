@@ -1,7 +1,18 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { useBoardDnd } from "./useBoardDnd";
 import type { Column } from "../api/types";
+
+// Review 2026-08-21 root I: a failed move must not be silent — the user sees
+// the card snap back AND gets told why.
+const mockShowApiError = vi.fn();
+vi.mock("@/shared/lib/showApiError", () => ({
+  showApiError: (...args: unknown[]) => mockShowApiError(...args),
+}));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 function makeColumns(): Column[] {
   return [
@@ -97,5 +108,9 @@ describe("useBoardDnd", () => {
       expect(todo.tasks.map((t) => t.id)).toEqual(["task-1"]);
       expect(doing.tasks.map((t) => t.id)).toEqual([]);
     });
+
+    // The rollback is visible feedback, but the failure itself must be
+    // surfaced too, not swallowed (review root I).
+    expect(mockShowApiError).toHaveBeenCalledTimes(1);
   });
 });

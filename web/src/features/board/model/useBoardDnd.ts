@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { showApiError } from "@/shared/lib/showApiError";
 import type { Column, Task } from "../api/types";
 
 interface UseBoardDndDeps {
@@ -61,7 +62,8 @@ export function useBoardDnd(initialColumns: Column[], { moveTask }: UseBoardDndD
         }),
       );
 
-      moveTask(taskId, targetColumnId).catch(() => {
+      moveTask(taskId, targetColumnId).catch((err: unknown) => {
+        showApiError(err);
         setColumns((prev) =>
           prev.map((column) => {
             if (column.id === targetColumnId) {
