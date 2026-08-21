@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -151,6 +153,29 @@ func TestMetricsRecordsAPIRequestsOnly(t *testing.T) {
 	}
 	if strings.Contains(body, `route="/livez"`) || strings.Contains(body, `route="/metrics"`) {
 		t.Error("operational endpoints must not appear as route labels in HTTP metrics")
+	}
+}
+
+// Review 2026-08-21 re2, #6: without an X-Forwarded-For header (direct
+// connection, e.g. local dev) middleware.GetClientIP returns "" and every
+// log line carried client_ip="" — the request logger must fall back to the
+// RemoteAddr-derived IP, the same way httputil.ClientIPKey does for rate
+// limiting.
+func TestRequestLoggerClientIPFallsBackToRemoteAddr(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	s := New(nil, "http://localhost", nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	req.RemoteAddr = "192.0.2.7:4242"
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, req)
+
+	if !strings.Contains(buf.String(), "client_ip=192.0.2.7") {
+		t.Errorf("expected the request log to carry the RemoteAddr-derived client IP, got:\n%s", buf.String())
 	}
 }
 

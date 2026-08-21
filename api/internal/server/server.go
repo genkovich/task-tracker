@@ -139,6 +139,10 @@ func requestLogger(next http.Handler) http.Handler {
 
 		next.ServeHTTP(ww, r)
 
+		// The same XFF-then-RemoteAddr resolution the rate limiter keys by:
+		// GetClientIP alone is "" on direct (proxyless) connections.
+		clientIP, _ := httputil.ClientIPKey(r)
+
 		slog.Info("http request",
 			"method", r.Method,
 			"path", redactPublicToken(r.URL.Path),
@@ -146,7 +150,7 @@ func requestLogger(next http.Handler) http.Handler {
 			"bytes", ww.BytesWritten(),
 			"duration", time.Since(start).String(),
 			"request_id", middleware.GetReqID(r.Context()),
-			"client_ip", middleware.GetClientIP(r.Context()),
+			"client_ip", clientIP,
 		)
 	})
 }
