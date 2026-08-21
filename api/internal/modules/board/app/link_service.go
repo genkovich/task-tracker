@@ -16,9 +16,8 @@ import (
 // 128 bits (ADR-0003: "128-bit random / UUIDv4"), hex-encoded on the wire.
 const tokenBytes = 16
 
-// LinkService implements the public-link use-cases (issue/revoke) for the
-// single board (CONTEXT.md invariant: the product always has exactly one
-// board).
+// LinkService implements the per-board public-link use-cases (issue/revoke,
+// boards BRD-06).
 type LinkService struct {
 	repo  ports.Repository
 	bcast ports.Broadcaster
@@ -32,8 +31,9 @@ func NewLinkService(repo ports.Repository, bcast ports.Broadcaster) *LinkService
 
 // IssuePublicLink issues a new opaque public-link token for boardID (AC-07).
 // Returns domain.ErrLinkAlreadyActive if the board already has an active
-// link (maps to the 409 board.link_already_active, contracts/openapi.yaml);
-// no write happens on that path.
+// link (maps to the 409 board.link_already_active, contracts/openapi.yaml)
+// and domain.ErrBoardNotFound for an unknown board; no write happens on
+// either path.
 func (s *LinkService) IssuePublicLink(ctx context.Context, boardID uuid.UUID) (*domain.PublicLink, error) {
 	token, err := generateToken()
 	if err != nil {
@@ -65,7 +65,7 @@ func (s *LinkService) RevokePublicLink(ctx context.Context, boardID uuid.UUID) e
 		return fmt.Errorf("revoke public link: %w", err)
 	}
 
-	s.bcast.CloseToken(active.Token)
+	s.bcast.CloseToken(boardID, active.Token)
 	return nil
 }
 

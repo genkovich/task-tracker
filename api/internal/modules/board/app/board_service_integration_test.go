@@ -72,7 +72,7 @@ func setupT12(t *testing.T) t12Fixture {
 	hub := infra.NewHub()
 
 	return t12Fixture{
-		taskSvc: app.NewTaskService(repo, hub, t12SeedBoardID),
+		taskSvc: app.NewTaskService(repo, hub),
 		linkSvc: app.NewLinkService(repo, hub),
 		hub:     hub,
 		db:      c.DB,
@@ -103,7 +103,7 @@ func TestConcurrentMoveTask_ConvergesOnSingleLastWrittenColumn(t *testing.T) {
 	f := setupT12(t)
 	ctx := context.Background()
 
-	task, err := f.taskSvc.CreateTask(ctx, "Concurrent move target", nil)
+	task, err := f.taskSvc.CreateTask(ctx, t12SeedBoardID, "Concurrent move target", nil)
 	require.NoError(t, err)
 	require.Equal(t, t12SeedColumnToDoID, task.ColumnID, "sanity: task starts in the leftmost column")
 
@@ -149,7 +149,7 @@ func TestRevokePublicLink_ClosesLiveConnectionSynchronously(t *testing.T) {
 	link, err := f.linkSvc.IssuePublicLink(ctx, t12SeedBoardID)
 	require.NoError(t, err)
 
-	ch, unregister := f.hub.Subscribe(link.Token)
+	ch, unregister := f.hub.Subscribe(t12SeedBoardID, link.Token)
 	defer unregister()
 
 	require.NoError(t, f.linkSvc.RevokePublicLink(ctx, t12SeedBoardID))

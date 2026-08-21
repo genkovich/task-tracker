@@ -112,7 +112,7 @@ func TestPostgresRepository_MoveTask_UpdatesColumnID(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, f.repo.InsertTask(ctx, task))
 
-	moved, err := f.repo.MoveTask(ctx, task.ID, seedColumnInProgID)
+	moved, movedBoardID, err := f.repo.MoveTask(ctx, task.ID, seedColumnInProgID)
 	require.NoError(t, err)
 
 	gotColumnID, found := taskColumnID(t, f, task.ID)
@@ -120,6 +120,8 @@ func TestPostgresRepository_MoveTask_UpdatesColumnID(t *testing.T) {
 	require.Equal(t, seedColumnInProgID, gotColumnID, "MoveTask should update column_id to the new column (AC-04)")
 
 	// Root G pin: the returned row is complete and updated_at moved forward.
+	// The reported board id feeds the board-scoped broadcast (boards BRD-05).
+	require.Equal(t, seedBoardID, movedBoardID, "MoveTask must report the task's board id")
 	require.NotNil(t, moved)
 	require.Equal(t, task.ID, moved.ID)
 	require.Equal(t, seedColumnInProgID, moved.ColumnID)
@@ -140,7 +142,7 @@ func TestPostgresRepository_MoveTask_NonexistentColumn_ReturnsErrColumnNotFound(
 	require.NoError(t, f.repo.InsertTask(ctx, task))
 
 	bogusColumnID := uuid.Must(uuid.NewV7())
-	_, err = f.repo.MoveTask(ctx, task.ID, bogusColumnID)
+	_, _, err = f.repo.MoveTask(ctx, task.ID, bogusColumnID)
 
 	require.Error(t, err)
 	require.Truef(t, errors.Is(err, domain.ErrColumnNotFound),
@@ -161,8 +163,9 @@ func TestPostgresRepository_DeleteTask_HardDeletesRow(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, f.repo.InsertTask(ctx, task))
 
-	err = f.repo.DeleteTask(ctx, task.ID)
+	deletedBoardID, err := f.repo.DeleteTask(ctx, task.ID)
 	require.NoError(t, err)
+	require.Equal(t, seedBoardID, deletedBoardID, "DeleteTask must report the board the task belonged to (BRD-05)")
 
 	_, found := taskColumnID(t, f, task.ID)
 	require.False(t, found, "task row must be gone after DeleteTask (AC-06 hard delete)")

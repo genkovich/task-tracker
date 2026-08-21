@@ -33,6 +33,9 @@ import (
 	"github.com/genkovich/task-tracker/api/migrations"
 )
 
+// wiringSeedBoardID is the seeded "first board" (migration 000007).
+var wiringSeedBoardID = uuid.MustParse("019a0000-0000-7000-8000-000000000101")
+
 // setupBoardServer wires board through server.New exactly the way
 // cmd/api/main.go does (no root-router side mount), with opts appended.
 func setupBoardServer(t *testing.T, opts ...any) *httptest.Server {
@@ -63,19 +66,19 @@ func TestBoardWiring_MetricsAndRateLimit(t *testing.T) {
 	// 60 requests fit the budget; the 61st within the same minute must be
 	// throttled — before the fix board bypassed the limiter entirely.
 	for i := range 60 {
-		resp, err := http.Get(ts.URL + "/api/v1/board") //nolint:noctx // test helper
+		resp, err := http.Get(ts.URL + "/api/v1/boards/" + wiringSeedBoardID.String()) //nolint:noctx // test helper
 		require.NoError(t, err)
 		_, _ = io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
-		require.Equalf(t, http.StatusOK, resp.StatusCode, "GET /api/v1/board #%d within the 60/min budget", i+1)
+		require.Equalf(t, http.StatusOK, resp.StatusCode, "GET /api/v1/boards/{boardId} #%d within the 60/min budget", i+1)
 	}
 
-	resp, err := http.Get(ts.URL + "/api/v1/board") //nolint:noctx // test helper
+	resp, err := http.Get(ts.URL + "/api/v1/boards/" + wiringSeedBoardID.String()) //nolint:noctx // test helper
 	require.NoError(t, err)
 	_, _ = io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 	require.Equal(t, http.StatusTooManyRequests, resp.StatusCode,
-		"the 61st GET /api/v1/board within a minute must hit the general rate limit")
+		"the 61st GET /api/v1/boards/{boardId} within a minute must hit the general rate limit")
 
 	// /metrics is mounted outside the limiter, so this scrape always works.
 	metricsResp, err := http.Get(ts.URL + "/metrics") //nolint:noctx // test helper
@@ -85,7 +88,7 @@ func TestBoardWiring_MetricsAndRateLimit(t *testing.T) {
 
 	raw, err := io.ReadAll(metricsResp.Body)
 	require.NoError(t, err)
-	require.Contains(t, string(raw), `http_requests_total{method="GET",route="/api/v1/board"`,
+	require.Contains(t, string(raw), `http_requests_total{method="GET",route="/api/v1/boards/{boardId}"`,
 		"board requests must be recorded by the HTTP metrics middleware")
 }
 
@@ -97,12 +100,12 @@ func TestBoardWiring_SSEOutlivesRequestTimeout(t *testing.T) {
 	const requestTimeout = 500 * time.Millisecond
 	ts := setupBoardServer(t, server.WithRequestTimeout(requestTimeout))
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, ts.URL+"/api/v1/board/events", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, ts.URL+"/api/v1/boards/"+wiringSeedBoardID.String()+"/events", nil)
 	require.NoError(t, err)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode, "GET /api/v1/board/events status")
+	require.Equal(t, http.StatusOK, resp.StatusCode, "GET /api/v1/boards/{boardId}/events status")
 
 	lines := make(chan string, 32)
 	done := make(chan struct{})
@@ -124,7 +127,7 @@ func TestBoardWiring_SSEOutlivesRequestTimeout(t *testing.T) {
 
 	// A mutation broadcasts board.state_changed; the long-lived stream must
 	// still be subscribed and deliver it.
-	body, err := json.Marshal(map[string]any{"title": "outlive the timeout"})
+	body, err := json.Marshal(map[string]any{"board_id": wiringSeedBoardID.String(), "title": "outlive the timeout"})
 	require.NoError(t, err)
 	createResp, err := http.Post(ts.URL+"/api/v1/tasks", "application/json", bytes.NewReader(body)) //nolint:noctx // test helper
 	require.NoError(t, err)
@@ -161,7 +164,7 @@ func TestPublicRoutes_MutatingMethodsRefused(t *testing.T) {
 	ctx := context.Background()
 
 	// Issue a real public link over the team-editor HTTP route.
-	linkResp, err := http.Post(ts.URL+"/api/v1/board/public-link", "application/json", nil) //nolint:noctx // test helper
+	linkResp, err := http.Post(ts.URL+"/api/v1/boards/"+wiringSeedBoardID.String()+"/public-link", "application/json", nil) //nolint:noctx // test helper
 	require.NoError(t, err)
 	var link struct {
 		Token string `json:"token"`

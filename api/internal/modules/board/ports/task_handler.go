@@ -23,7 +23,7 @@ const taskCreateRateLimit = 30
 // TaskAppService is the task use-case port TaskHandler depends on
 // (create/edit/move/delete, AC-01..AC-06) — satisfied by app.TaskService.
 type TaskAppService interface {
-	CreateTask(ctx context.Context, title string, assignee *string) (*domain.Task, error)
+	CreateTask(ctx context.Context, boardID uuid.UUID, title string, assignee *string) (*domain.Task, error)
 	EditTask(ctx context.Context, taskID uuid.UUID, title string, assignee *string) (*domain.Task, error)
 	MoveTask(ctx context.Context, taskID, columnID uuid.UUID) (*domain.Task, error)
 	DeleteTask(ctx context.Context, taskID uuid.UUID) error
@@ -79,6 +79,7 @@ func handleTaskRateLimited(w http.ResponseWriter, _ *http.Request) {
 // @Accept   json
 // @Produce  json
 // @Success  201 {object} TaskResponse
+// @Failure  404 {object} httputil.ErrorResponse
 // @Failure  422 {object} httputil.ErrorResponse
 // @Failure  429 {object} httputil.ErrorResponse
 // @Router   /tasks [post]
@@ -89,7 +90,13 @@ func (h *TaskHandler) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, err := h.taskService.CreateTask(r.Context(), req.Title, req.Assignee)
+	boardID, err := uuid.Parse(req.BoardID)
+	if err != nil {
+		httputil.WriteValidationError(w, "validation.invalid_board_id", "invalid board id")
+		return
+	}
+
+	task, err := h.taskService.CreateTask(r.Context(), boardID, req.Title, req.Assignee)
 	if err != nil {
 		httputil.WriteError(w, mapTaskError(err))
 		return

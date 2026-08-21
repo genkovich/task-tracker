@@ -96,7 +96,7 @@ func setupT7TaskHandlerServer(t *testing.T) t7TaskHandlerFixture {
 	repo := infra.NewPostgresRepository(c.DB)
 	hub := infra.NewHub()
 
-	taskSvc := app.NewTaskService(repo, hub, t7TaskHandlerSeedBoardID)
+	taskSvc := app.NewTaskService(repo, hub)
 
 	// ports.NewTaskHandler does not exist yet (T7) — this line is why the
 	// package fails to compile before T7 lands.
@@ -137,7 +137,7 @@ func (f t7TaskHandlerFixture) do(t *testing.T, method, path string, body any, he
 
 func (f t7TaskHandlerFixture) createTask(t *testing.T, title string) t7TaskWire {
 	t.Helper()
-	resp := f.do(t, http.MethodPost, "/api/v1/tasks", map[string]any{"title": title}, nil)
+	resp := f.do(t, http.MethodPost, "/api/v1/tasks", map[string]any{"board_id": t7TaskHandlerSeedBoardID.String(), "title": title}, nil)
 	defer resp.Body.Close()
 	require.Equalf(t, http.StatusCreated, resp.StatusCode, "seed task creation must succeed")
 
@@ -151,7 +151,7 @@ func (f t7TaskHandlerFixture) createTask(t *testing.T, title string) t7TaskWire 
 func TestTaskHandler_CreateTask_HappyPath(t *testing.T) {
 	f := setupT7TaskHandlerServer(t)
 
-	resp := f.do(t, http.MethodPost, "/api/v1/tasks", map[string]any{"title": "Write the report", "assignee": "Ada"}, nil)
+	resp := f.do(t, http.MethodPost, "/api/v1/tasks", map[string]any{"board_id": t7TaskHandlerSeedBoardID.String(), "title": "Write the report", "assignee": "Ada"}, nil)
 	defer resp.Body.Close()
 	require.Equalf(t, http.StatusCreated, resp.StatusCode, "POST /api/v1/tasks (AC-01) status")
 
@@ -171,7 +171,7 @@ func TestTaskHandler_CreateTask_HappyPath(t *testing.T) {
 func TestTaskHandler_CreateTask_EmptyTitle(t *testing.T) {
 	f := setupT7TaskHandlerServer(t)
 
-	resp := f.do(t, http.MethodPost, "/api/v1/tasks", map[string]any{"title": ""}, nil)
+	resp := f.do(t, http.MethodPost, "/api/v1/tasks", map[string]any{"board_id": t7TaskHandlerSeedBoardID.String(), "title": ""}, nil)
 	defer resp.Body.Close()
 	require.Equalf(t, http.StatusUnprocessableEntity, resp.StatusCode, "POST /api/v1/tasks with empty title (AC-02) status")
 
@@ -220,7 +220,7 @@ func TestTaskHandler_EditTask_EmptyTitle(t *testing.T) {
 	f := setupT7TaskHandlerServer(t)
 	task := f.createTask(t, "Original title")
 
-	resp := f.do(t, http.MethodPatch, "/api/v1/tasks/"+task.ID, map[string]any{"title": ""}, nil)
+	resp := f.do(t, http.MethodPatch, "/api/v1/tasks/"+task.ID, map[string]any{"board_id": t7TaskHandlerSeedBoardID.String(), "title": ""}, nil)
 	defer resp.Body.Close()
 	require.Equalf(t, http.StatusUnprocessableEntity, resp.StatusCode, "PATCH /api/v1/tasks/{id} with empty title (AC-02) status")
 
@@ -340,12 +340,12 @@ func TestTaskHandler_CreateTask_RateLimited(t *testing.T) {
 	f := setupT7TaskHandlerServer(t)
 
 	for i := range 30 {
-		resp := f.do(t, http.MethodPost, "/api/v1/tasks", map[string]any{"title": "Bulk task"}, nil)
+		resp := f.do(t, http.MethodPost, "/api/v1/tasks", map[string]any{"board_id": t7TaskHandlerSeedBoardID.String(), "title": "Bulk task"}, nil)
 		resp.Body.Close()
 		require.Equalf(t, http.StatusCreated, resp.StatusCode, "creation #%d within the 30/min budget must succeed", i+1)
 	}
 
-	resp := f.do(t, http.MethodPost, "/api/v1/tasks", map[string]any{"title": "One too many"}, nil)
+	resp := f.do(t, http.MethodPost, "/api/v1/tasks", map[string]any{"board_id": t7TaskHandlerSeedBoardID.String(), "title": "One too many"}, nil)
 	defer resp.Body.Close()
 	require.Equalf(t, http.StatusTooManyRequests, resp.StatusCode, "the 31st creation within a minute must return 429 (spec §6.1)")
 

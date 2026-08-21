@@ -6,7 +6,6 @@ package board
 
 import (
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 
 	"github.com/genkovich/task-tracker/api/internal/modules/board/app"
 	"github.com/genkovich/task-tracker/api/internal/modules/board/infra"
@@ -14,12 +13,8 @@ import (
 	"github.com/genkovich/task-tracker/api/internal/platform/database"
 )
 
-// BoardID is the single board's fixed id (CONTEXT.md invariant: the product
-// always has exactly one board), seeded by migration 000007_seed_board.
-var BoardID = uuid.MustParse("019a0000-0000-7000-8000-000000000101")
-
 // Handler aggregates every board HTTP surface behind one registrar: the
-// team-editor board/task/public-link routes, the public-viewer read-only
+// team-editor boards/task/public-link routes, the public-viewer read-only
 // routes (ADR-0003) — both via server.RouteRegistrar — and the team-editor +
 // public-viewer SSE streams (ADR-0002) via server.StreamingRouteRegistrar,
 // so the server keeps them off the per-request timeout. Passed into
@@ -32,29 +27,31 @@ type Handler struct {
 	public *ports.PublicHandler
 }
 
-// New wires the board module from its infra (Postgres repo + in-process SSE
-// hub, ADR-0002) up through app (task/link/state use-case services) to the
-// aggregate ports Handler. Board is deliberately unauthenticated (ADR-0001,
-// no accounts) — the caller registers Handler without authMW.
+// New wires the board module from its infra (Postgres repo + in-process
+// board-scoped SSE hub, ADR-0002) up through app (board/task/link/state
+// use-case services) to the aggregate ports Handler. Board is deliberately
+// unauthenticated (ADR-0001, no accounts) — the caller registers Handler
+// without authMW.
 func New(db *database.DB) *Handler {
 	repo := infra.NewPostgresRepository(db)
 	hub := infra.NewHub()
 
-	taskSvc := app.NewTaskService(repo, hub, BoardID)
+	boardSvc := app.NewBoardService(repo)
+	taskSvc := app.NewTaskService(repo, hub)
 	linkSvc := app.NewLinkService(repo, hub)
 	stateSvc := app.NewStateService(repo)
 
 	return &Handler{
-		board:  ports.NewBoardHandler(stateSvc, BoardID),
+		board:  ports.NewBoardHandler(boardSvc, stateSvc),
 		task:   ports.NewTaskHandler(taskSvc),
-		link:   ports.NewLinkHandler(linkSvc, BoardID),
-		sse:    ports.NewSSEHandler(hub, stateSvc),
+		link:   ports.NewLinkHandler(linkSvc),
+		sse:    ports.NewSSEHandler(hub, stateSvc, stateSvc),
 		public: ports.NewPublicHandler(stateSvc),
 	}
 }
 
 // RegisterRoutes mounts the request/response board routes (team-editor
-// board/task/link, public-viewer board) on r — the server's shared /api/v1
+// boards/task/link, public-viewer board) on r — the server's shared /api/v1
 // registrar group, which carries the per-request timeout.
 func (h *Handler) RegisterRoutes(r chi.Router) {
 	h.board.RegisterRoutes(r)

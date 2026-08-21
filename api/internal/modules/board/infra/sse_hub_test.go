@@ -1,21 +1,21 @@
 package infra_test
 
-// Unit tests for the in-process SSE hub (T4). Per T4's DoD:
-//   - Broadcast() delivers board.state_changed.v1 (events.md shape) to every
-//     registered connection, team-editor and public-viewer alike.
-//   - CloseToken(token) closes exactly the connections registered under that
-//     token, leaving every other connection (other tokens, team-editor) open.
+// Unit tests for the in-process, board-scoped SSE hub (T4 + boards BRD-05):
+//   - Broadcast(boardID) delivers board.state_changed.v1 (events.md shape) to
+//     every connection registered under that board — team-editor and
+//     public-viewer alike — and to no other board's connections.
+//   - CloseToken(boardID, token) closes exactly the connections registered
+//     under that board's token, leaving every other connection (other tokens,
+//     team-editor, other boards) open.
 //   - register/unregister/broadcast is safe under `go test -race` from
 //     multiple goroutines.
-//
-// No production code exists yet for infra.Hub / ports.Event / ports.Broadcaster
-// — this is the RED step.
 
 import (
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/genkovich/task-tracker/api/internal/modules/board/infra"
@@ -23,15 +23,17 @@ import (
 )
 
 // TestHub_Broadcast_DeliversToEveryRegisteredConnection covers T4's first DoD
-// line: a single Broadcast() call must reach every live connection — the
-// team-editor connection (no token) and every public-viewer connection
-// (registered under a token) — with the events.md v1 shape intact.
+// line: a single Broadcast() call must reach every live connection of the
+// broadcast board — the team-editor connection (no token) and every
+// public-viewer connection (registered under a token) — with the events.md
+// v1 shape intact.
 func TestHub_Broadcast_DeliversToEveryRegisteredConnection(t *testing.T) {
 	h := infra.NewHub()
+	boardID := uuid.Must(uuid.NewV7())
 
-	_, teamCh := h.Register("") // team-editor: no token
-	_, viewerACh := h.Register("token-a")
-	_, viewerBCh := h.Register("token-b")
+	_, teamCh := h.Register(boardID, "") // team-editor: no token
+	_, viewerACh := h.Register(boardID, "token-a")
+	_, viewerBCh := h.Register(boardID, "token-b")
 
 	evt := ports.Event{
 		EventID:    "01960000-0000-7000-8000-000000000001",
@@ -40,7 +42,7 @@ func TestHub_Broadcast_DeliversToEveryRegisteredConnection(t *testing.T) {
 		OccurredAt: time.Now().UTC(),
 	}
 
-	h.Broadcast(evt)
+	h.Broadcast(boardID, evt)
 
 	for label, ch := range map[string]<-chan ports.Event{
 		"team-editor connection":  teamCh,
@@ -57,25 +59,59 @@ func TestHub_Broadcast_DeliversToEveryRegisteredConnection(t *testing.T) {
 	}
 }
 
+// TestHub_Broadcast_ScopedToOneBoard pins boards BRD-05: a broadcast for
+// board A must never reach board B's connections — neither its team-editor
+// connection nor its viewers.
+func TestHub_Broadcast_ScopedToOneBoard(t *testing.T) {
+	h := infra.NewHub()
+	boardA := uuid.Must(uuid.NewV7())
+	boardB := uuid.Must(uuid.NewV7())
+
+	_, aTeamCh := h.Register(boardA, "")
+	_, bTeamCh := h.Register(boardB, "")
+	_, bViewerCh := h.Register(boardB, "token-b")
+
+	h.Broadcast(boardA, ports.Event{
+		EventID:    "evt-a",
+		EventType:  "board.state_changed",
+		Version:    1,
+		OccurredAt: time.Now().UTC(),
+	})
+
+	select {
+	case _, ok := <-aTeamCh:
+		require.True(t, ok, "board A team-editor: channel closed before delivering the broadcast")
+	case <-time.After(time.Second):
+		t.Fatal("board A team-editor: did not receive its own board's broadcast within 1s")
+	}
+
+	requireOpenAndIdle(t, bTeamCh, "board B team-editor connection")
+	requireOpenAndIdle(t, bViewerCh, "board B viewer connection")
+}
+
 // TestHub_CloseToken_ClosesExactlyThatTokensConnections covers T4's second
 // DoD line and is what makes T9/T12's AC-11 revoke-closes-SSE test possible:
-// CloseToken(token) must close every connection registered under that token
-// and must NOT touch connections under a different token or the team-editor
-// connection.
+// CloseToken(boardID, token) must close every connection registered under
+// that board's token and must NOT touch connections under a different token,
+// the team-editor connection, or another board's connections.
 func TestHub_CloseToken_ClosesExactlyThatTokensConnections(t *testing.T) {
 	h := infra.NewHub()
+	boardID := uuid.Must(uuid.NewV7())
+	otherBoardID := uuid.Must(uuid.NewV7())
 
-	_, tokenAConn1 := h.Register("token-a")
-	_, tokenAConn2 := h.Register("token-a")
-	_, tokenBConn := h.Register("token-b")
-	_, teamConn := h.Register("")
+	_, tokenAConn1 := h.Register(boardID, "token-a")
+	_, tokenAConn2 := h.Register(boardID, "token-a")
+	_, tokenBConn := h.Register(boardID, "token-b")
+	_, teamConn := h.Register(boardID, "")
+	_, otherBoardConn := h.Register(otherBoardID, "token-c")
 
-	h.CloseToken("token-a")
+	h.CloseToken(boardID, "token-a")
 
 	requireClosed(t, tokenAConn1, "token-a connection #1")
 	requireClosed(t, tokenAConn2, "token-a connection #2")
 	requireOpenAndIdle(t, tokenBConn, "token-b connection")
 	requireOpenAndIdle(t, teamConn, "team-editor connection")
+	requireOpenAndIdle(t, otherBoardConn, "other board's viewer connection")
 }
 
 // TestHub_ConcurrentRegisterBroadcastUnregister_NoRace exercises the
@@ -83,6 +119,7 @@ func TestHub_CloseToken_ClosesExactlyThatTokensConnections(t *testing.T) {
 // goroutines simultaneously must not race (run with `go test -race`).
 func TestHub_ConcurrentRegisterBroadcastUnregister_NoRace(t *testing.T) {
 	h := infra.NewHub()
+	boardID := uuid.Must(uuid.NewV7())
 
 	const workers = 20
 	var wg sync.WaitGroup
@@ -91,8 +128,8 @@ func TestHub_ConcurrentRegisterBroadcastUnregister_NoRace(t *testing.T) {
 	for i := 0; i < workers; i++ {
 		go func(n int) {
 			defer wg.Done()
-			id, ch := h.Register("token-race")
-			h.Broadcast(ports.Event{
+			id, ch := h.Register(boardID, "token-race")
+			h.Broadcast(boardID, ports.Event{
 				EventID:    "evt",
 				EventType:  "board.state_changed",
 				Version:    1,
@@ -105,12 +142,12 @@ func TestHub_ConcurrentRegisterBroadcastUnregister_NoRace(t *testing.T) {
 			case <-ch:
 			case <-time.After(100 * time.Millisecond):
 			}
-			h.Unregister("token-race", id)
+			h.Unregister(boardID, "token-race", id)
 		}(i)
 	}
 
 	wg.Wait()
-	h.CloseToken("token-race")
+	h.CloseToken(boardID, "token-race")
 }
 
 func requireClosed(t *testing.T, ch <-chan ports.Event, label string) {
@@ -127,10 +164,10 @@ func requireOpenAndIdle(t *testing.T, ch <-chan ports.Event, label string) {
 	t.Helper()
 	select {
 	case _, ok := <-ch:
-		require.Truef(t, ok, "%s: expected the channel to remain open after CloseToken(\"token-a\"), but it was closed", label)
+		require.Truef(t, ok, "%s: expected the channel to remain open, but it was closed", label)
 		t.Fatalf("%s: unexpectedly received a value on an idle connection", label)
 	default:
 		// No value pending and not closed — correct: this connection was
-		// never touched by CloseToken("token-a").
+		// never touched.
 	}
 }

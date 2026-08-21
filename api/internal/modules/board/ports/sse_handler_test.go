@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/genkovich/task-tracker/api/internal/modules/board/domain"
@@ -51,7 +52,7 @@ func TestStreamPublicBoardEvents_RevokeBetweenValidateAndRegister_ClosesStream(t
 	registry := &recordingRegistry{events: make(chan Event)}
 	svc := &revokedAfterFirstCheckStateService{}
 
-	h := NewSSEHandler(registry, svc)
+	h := NewSSEHandler(registry, svc, &neverCalledBoardStateService{t: t})
 	r := chi.NewRouter()
 	h.RegisterRoutes(r)
 
@@ -92,6 +93,17 @@ type recordingRegistry struct {
 	unregistered bool
 }
 
-func (r *recordingRegistry) Subscribe(string) (<-chan Event, func()) {
+func (r *recordingRegistry) Subscribe(uuid.UUID, string) (<-chan Event, func()) {
 	return r.events, func() { r.unregistered = true }
+}
+
+// neverCalledBoardStateService satisfies SSEBoardStateService for the
+// public-viewer path, which must never consult the team-editor board lookup.
+type neverCalledBoardStateService struct {
+	t *testing.T
+}
+
+func (s *neverCalledBoardStateService) GetBoardState(context.Context, uuid.UUID) (*BoardState, error) {
+	s.t.Fatal("the public-viewer stream must not consult the team-editor board state service")
+	return nil, nil
 }
