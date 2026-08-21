@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/genkovich/task-tracker/api/internal/modules/auth"
+	"github.com/genkovich/task-tracker/api/internal/modules/tasks"
 	"github.com/genkovich/task-tracker/api/internal/modules/user"
 	"github.com/genkovich/task-tracker/api/internal/platform/authmw"
 	"github.com/genkovich/task-tracker/api/internal/platform/config"
@@ -84,6 +85,7 @@ func main() {
 		server.WithAppEnv(cfg.AppEnv),
 		user.New(db, avatarStorage),
 		authHandler,
+		tasks.New(db),
 	)
 
 	srv := &http.Server{

@@ -27,6 +27,14 @@ type ProtectedRouteRegistrar interface {
 	RegisterProtectedRoutes(r chi.Router)
 }
 
+// LongLivedRouteRegistrar is optionally implemented by modules with routes
+// meant to stay open for as long as the client is (e.g. Server-Sent Events).
+// These routes are exempt from the shared request timeout — everything else
+// (rate limiting, security headers, request size limit) still applies.
+type LongLivedRouteRegistrar interface {
+	RegisterLongLivedRoutes(r chi.Router)
+}
+
 // Option configures the Server.
 type Option func(*Server)
 
@@ -93,7 +101,10 @@ func (s *Server) setupMiddleware() {
 	s.router.Use(middleware.ClientIPFromXFF())
 	s.router.Use(middleware.Logger)
 	s.router.Use(middleware.Recoverer)
-	s.router.Use(middleware.Timeout(30 * time.Second))
+	// The 30s request timeout is applied selectively in setupRoutes, not
+	// globally here — a LongLivedRouteRegistrar route (SSE) must be exempt
+	// from it, and chi middleware installed via Use() on this top-level
+	// router can never be "removed" for a subset of routes registered later.
 	s.router.Use(requestSizeLimit(1 << 20)) // 1 MB
 }
 
@@ -129,12 +140,15 @@ func requestSizeLimit(maxBytes int64) func(http.Handler) http.Handler {
 }
 
 func (s *Server) setupRoutes() {
+	timeoutMW := middleware.Timeout(30 * time.Second)
+
 	// Operational endpoints stay outside the rate limiter and the HTTP
 	// metrics middleware so probes and scrapes never get throttled and never
-	// pollute the route-labelled series.
-	s.router.Get("/livez", s.handleLivez)
-	s.router.Get("/readyz", s.handleReadyz)
-	s.router.Method(http.MethodGet, "/metrics", s.metrics.handler())
+	// pollute the route-labelled series. They keep the request timeout —
+	// fast handlers, defense in depth.
+	s.router.With(timeoutMW).Get("/livez", s.handleLivez)
+	s.router.With(timeoutMW).Get("/readyz", s.handleReadyz)
+	s.router.With(timeoutMW).Method(http.MethodGet, "/metrics", s.metrics.handler())
 
 	s.router.Group(func(r chi.Router) {
 		// General rate limit: 60 req/min per IP.
@@ -142,23 +156,35 @@ func (s *Server) setupRoutes() {
 		r.Use(s.metrics.middleware)
 
 		r.Route("/api/v1", func(r chi.Router) {
-			r.Get("/health", s.handleHealth)
+			r.With(timeoutMW).Get("/health", s.handleHealth)
 
-			// Public routes.
+			// Long-lived routes (SSE) — rate-limited like everything else,
+			// but never cancelled by the 30s request timeout.
 			for _, reg := range s.registrars {
-				reg.RegisterRoutes(r)
+				if lr, ok := reg.(LongLivedRouteRegistrar); ok {
+					lr.RegisterLongLivedRoutes(r)
+				}
 			}
 
-			// Protected routes (require auth middleware).
 			r.Group(func(r chi.Router) {
-				if s.authMW != nil {
-					r.Use(s.authMW)
-				}
+				r.Use(timeoutMW)
+
+				// Public routes.
 				for _, reg := range s.registrars {
-					if pr, ok := reg.(ProtectedRouteRegistrar); ok {
-						pr.RegisterProtectedRoutes(r)
-					}
+					reg.RegisterRoutes(r)
 				}
+
+				// Protected routes (require auth middleware).
+				r.Group(func(r chi.Router) {
+					if s.authMW != nil {
+						r.Use(s.authMW)
+					}
+					for _, reg := range s.registrars {
+						if pr, ok := reg.(ProtectedRouteRegistrar); ok {
+							pr.RegisterProtectedRoutes(r)
+						}
+					}
+				})
 			})
 		})
 	})

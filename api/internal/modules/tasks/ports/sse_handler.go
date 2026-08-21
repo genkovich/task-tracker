@@ -41,7 +41,10 @@ func NewSSEHandler(broadcaster *app.Broadcaster) *SSEHandler {
 	return &SSEHandler{broadcaster: broadcaster}
 }
 
-func (h *SSEHandler) RegisterRoutes(r chi.Router) {
+// RegisterRoutes is a no-op — this handler's only route is long-lived.
+func (h *SSEHandler) RegisterRoutes(_ chi.Router) {}
+
+func (h *SSEHandler) RegisterLongLivedRoutes(r chi.Router) {
 	r.Get("/cards/events", h.handleSubscribe)
 }
 

@@ -26,10 +26,11 @@ func NewPublicBoardHandler(cardService *app.CardService, linkService *app.Public
 }
 
 func (h *PublicBoardHandler) RegisterRoutes(r chi.Router) {
-	r.Route("/public/boards/{token}", func(r chi.Router) {
-		r.Get("/", h.handleGet)
-		r.Get("/events", h.handleSubscribe)
-	})
+	r.Get("/public/boards/{token}", h.handleGet)
+}
+
+func (h *PublicBoardHandler) RegisterLongLivedRoutes(r chi.Router) {
+	r.Get("/public/boards/{token}/events", h.handleSubscribe)
 }
 
 func (h *PublicBoardHandler) handleGet(w http.ResponseWriter, r *http.Request) {
