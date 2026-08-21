@@ -9,11 +9,12 @@ import (
 )
 
 type CardService struct {
-	repo domain.CardRepository
+	repo        domain.CardRepository
+	broadcaster *Broadcaster
 }
 
-func NewCardService(repo domain.CardRepository) *CardService {
-	return &CardService{repo: repo}
+func NewCardService(repo domain.CardRepository, broadcaster *Broadcaster) *CardService {
+	return &CardService{repo: repo, broadcaster: broadcaster}
 }
 
 func (s *CardService) CreateCard(ctx context.Context, name string, assignee *string) (*domain.Card, error) {
@@ -35,6 +36,7 @@ func (s *CardService) CreateCard(ctx context.Context, name string, assignee *str
 	if err := s.repo.Create(ctx, &card); err != nil {
 		return nil, err
 	}
+	s.broadcaster.Publish(BoardEvent{Type: EventCardCreated, Payload: card.ID})
 	return &card, nil
 }
 
@@ -49,6 +51,7 @@ func (s *CardService) UpdateCard(ctx context.Context, id uuid.UUID, name string,
 	if err := s.repo.Update(ctx, &card); err != nil {
 		return nil, err
 	}
+	s.broadcaster.Publish(BoardEvent{Type: EventCardUpdated, Payload: card.ID})
 	return &card, nil
 }
 
@@ -56,11 +59,20 @@ func (s *CardService) MoveCard(ctx context.Context, id uuid.UUID, columnStatus s
 	if !domain.IsValidColumnStatus(columnStatus) {
 		return nil, domain.ErrInvalidColumn
 	}
-	return s.repo.Move(ctx, id, columnStatus)
+	card, err := s.repo.Move(ctx, id, columnStatus)
+	if err != nil {
+		return nil, err
+	}
+	s.broadcaster.Publish(BoardEvent{Type: EventCardMoved, Payload: card.ID})
+	return card, nil
 }
 
 func (s *CardService) DeleteCard(ctx context.Context, id uuid.UUID) error {
-	return s.repo.Delete(ctx, id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+	s.broadcaster.Publish(BoardEvent{Type: EventCardDeleted, Payload: id})
+	return nil
 }
 
 func (s *CardService) GetBoard(ctx context.Context) ([]domain.Card, error) {

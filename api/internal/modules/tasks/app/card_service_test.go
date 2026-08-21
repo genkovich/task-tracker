@@ -77,13 +77,13 @@ func (f *fakeCardRepo) Delete(_ context.Context, id uuid.UUID) error {
 }
 
 func TestCardService_CreateCard_Rejects_EmptyName(t *testing.T) {
-	svc := app.NewCardService(newFakeCardRepo())
+	svc := app.NewCardService(newFakeCardRepo(), app.NewBroadcaster())
 	_, err := svc.CreateCard(context.Background(), "   ", nil)
 	require.ErrorIs(t, err, domain.ErrNameRequired)
 }
 
 func TestCardService_CreateCard_LandsInTodo(t *testing.T) {
-	svc := app.NewCardService(newFakeCardRepo())
+	svc := app.NewCardService(newFakeCardRepo(), app.NewBroadcaster())
 	card, err := svc.CreateCard(context.Background(), "Write the deck", nil)
 	require.NoError(t, err)
 	require.Equal(t, domain.ColumnTodo, card.ColumnStatus)
@@ -91,7 +91,7 @@ func TestCardService_CreateCard_LandsInTodo(t *testing.T) {
 
 func TestCardService_UpdateCard_Rejects_EmptyName(t *testing.T) {
 	repo := newFakeCardRepo()
-	svc := app.NewCardService(repo)
+	svc := app.NewCardService(repo, app.NewBroadcaster())
 	created, err := svc.CreateCard(context.Background(), "original", nil)
 	require.NoError(t, err)
 
@@ -104,7 +104,7 @@ func TestCardService_UpdateCard_Rejects_EmptyName(t *testing.T) {
 // that could reject a write.
 func TestCardService_UpdateCard_NoVersionCheck(t *testing.T) {
 	repo := newFakeCardRepo()
-	svc := app.NewCardService(repo)
+	svc := app.NewCardService(repo, app.NewBroadcaster())
 	created, err := svc.CreateCard(context.Background(), "original", nil)
 	require.NoError(t, err)
 
@@ -115,7 +115,7 @@ func TestCardService_UpdateCard_NoVersionCheck(t *testing.T) {
 
 func TestCardService_MoveCard_Rejects_InvalidColumn(t *testing.T) {
 	repo := newFakeCardRepo()
-	svc := app.NewCardService(repo)
+	svc := app.NewCardService(repo, app.NewBroadcaster())
 	created, err := svc.CreateCard(context.Background(), "movable", nil)
 	require.NoError(t, err)
 
@@ -125,7 +125,7 @@ func TestCardService_MoveCard_Rejects_InvalidColumn(t *testing.T) {
 
 func TestCardService_MoveCard_OK(t *testing.T) {
 	repo := newFakeCardRepo()
-	svc := app.NewCardService(repo)
+	svc := app.NewCardService(repo, app.NewBroadcaster())
 	created, err := svc.CreateCard(context.Background(), "movable", nil)
 	require.NoError(t, err)
 
@@ -139,7 +139,7 @@ func TestCardService_MoveCard_OK(t *testing.T) {
 // ErrCardNotFound, not a special-cased success.
 func TestCardService_MoveCard_ConcurrentDeleteWins(t *testing.T) {
 	repo := newFakeCardRepo()
-	svc := app.NewCardService(repo)
+	svc := app.NewCardService(repo, app.NewBroadcaster())
 	created, err := svc.CreateCard(context.Background(), "deleted mid-flight", nil)
 	require.NoError(t, err)
 
@@ -149,9 +149,55 @@ func TestCardService_MoveCard_ConcurrentDeleteWins(t *testing.T) {
 	require.ErrorIs(t, err, domain.ErrCardNotFound)
 }
 
+func TestCardService_CreateCard_BroadcastsEvent(t *testing.T) {
+	b := app.NewBroadcaster()
+	svc := app.NewCardService(newFakeCardRepo(), b)
+	ch, unsub := b.Subscribe()
+	defer unsub()
+
+	_, err := svc.CreateCard(context.Background(), "one", nil)
+	require.NoError(t, err)
+
+	ev := <-ch
+	require.Equal(t, app.EventCardCreated, ev.Type)
+}
+
+func TestCardService_MoveCard_BroadcastsEvent(t *testing.T) {
+	repo := newFakeCardRepo()
+	b := app.NewBroadcaster()
+	svc := app.NewCardService(repo, b)
+	created, err := svc.CreateCard(context.Background(), "movable", nil)
+	require.NoError(t, err)
+
+	ch, unsub := b.Subscribe()
+	defer unsub()
+
+	_, err = svc.MoveCard(context.Background(), created.ID, domain.ColumnDone)
+	require.NoError(t, err)
+
+	ev := <-ch
+	require.Equal(t, app.EventCardMoved, ev.Type)
+}
+
+func TestCardService_DeleteCard_BroadcastsEvent(t *testing.T) {
+	repo := newFakeCardRepo()
+	b := app.NewBroadcaster()
+	svc := app.NewCardService(repo, b)
+	created, err := svc.CreateCard(context.Background(), "to delete", nil)
+	require.NoError(t, err)
+
+	ch, unsub := b.Subscribe()
+	defer unsub()
+
+	require.NoError(t, svc.DeleteCard(context.Background(), created.ID))
+
+	ev := <-ch
+	require.Equal(t, app.EventCardDeleted, ev.Type)
+}
+
 func TestCardService_GetBoard(t *testing.T) {
 	repo := newFakeCardRepo()
-	svc := app.NewCardService(repo)
+	svc := app.NewCardService(repo, app.NewBroadcaster())
 	_, err := svc.CreateCard(context.Background(), "one", nil)
 	require.NoError(t, err)
 	_, err = svc.CreateCard(context.Background(), "two", nil)
