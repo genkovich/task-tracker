@@ -49,6 +49,10 @@ func (h *PublicHandler) RegisterRoutes(r chi.Router) {
 // @Router   /public/{token}/board [get]
 func (h *PublicHandler) handleGetPublicBoard(w http.ResponseWriter, r *http.Request) {
 	setNoIndexHeader(w)
+	// Never a long-lived cache — a viewer must always see the board's
+	// current state, not a stale snapshot served by an intermediary after
+	// the link was revoked or the board changed.
+	w.Header().Set("Cache-Control", "no-store")
 	token := chi.URLParam(r, "token")
 
 	state, err := h.stateService.GetPublicBoardState(r.Context(), token)

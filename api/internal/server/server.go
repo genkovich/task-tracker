@@ -37,6 +37,22 @@ type StreamingRouteRegistrar interface {
 	RegisterStreamingRoutes(r chi.Router)
 }
 
+// HighTrafficRouteRegistrar is optionally implemented by modules with public,
+// unauthenticated routes that many distinct end-users may hit from behind a
+// handful of shared IPs (e.g. a workshop audience on one venue Wi-Fi) — these
+// get a much higher per-IP rate limit than the default 60 req/min. timeoutMW
+// is handed in so the registrar can still opt individual (non-streaming)
+// routes into the standard request timeout via r.With(timeoutMW) — a
+// long-lived route (SSE) registered alongside them simply doesn't apply it.
+type HighTrafficRouteRegistrar interface {
+	RegisterHighTrafficRoutes(r chi.Router, timeoutMW func(http.Handler) http.Handler)
+}
+
+// highTrafficRateLimit is generous enough that ~30 viewers opening a public
+// board page plus its SSE stream in the same minute never trips it, without
+// removing rate limiting for this subtree entirely.
+const highTrafficRateLimit = 300
+
 // Option configures the Server.
 type Option func(*Server)
 
@@ -189,15 +205,21 @@ func (s *Server) setupRoutes() {
 	s.router.Get("/readyz", s.handleReadyz)
 	s.router.Method(http.MethodGet, "/metrics", s.metrics.handler())
 
-	s.router.Group(func(r chi.Router) {
-		// Metrics wrap the rate limiter, not the other way around: a 429
-		// refused by the limiter must still be counted (status="429"), or an
-		// abuse wave looks like silence on the dashboards.
-		r.Use(s.metrics.middleware)
-		// General rate limit: 60 req/min per IP.
-		r.Use(httprate.Limit(60, time.Minute, httprate.WithKeyFuncs(httputil.ClientIPKey)))
+	// Exactly one Route("/api/v1", ...) mount — chi panics if called twice on
+	// the same path. The two rate-limit tiers below are SIBLING groups inside
+	// it, not nested inside each other: chi composes every ancestor group's
+	// middleware, so nesting the high-traffic group inside the default
+	// 60/min one would still enforce the stricter outer limit on top of it.
+	// Siblings don't share ancestry, so each limiter applies on its own.
+	s.router.Route("/api/v1", func(r chi.Router) {
+		r.Group(func(r chi.Router) {
+			// Metrics wrap the rate limiter, not the other way around: a 429
+			// refused by the limiter must still be counted (status="429"), or
+			// an abuse wave looks like silence on the dashboards.
+			r.Use(s.metrics.middleware)
+			// General rate limit: 60 req/min per IP.
+			r.Use(httprate.Limit(60, time.Minute, httprate.WithKeyFuncs(httputil.ClientIPKey)))
 
-		r.Route("/api/v1", func(r chi.Router) {
 			// Regular request/response routes run under the per-request
 			// timeout; streaming routes below must not — the timeout would
 			// cancel a long-lived stream's context mid-flight.
@@ -229,6 +251,22 @@ func (s *Server) setupRoutes() {
 			for _, reg := range s.registrars {
 				if sr, ok := reg.(StreamingRouteRegistrar); ok {
 					sr.RegisterStreamingRoutes(r)
+				}
+			}
+		})
+
+		// High-traffic public routes — a module opts a route into this
+		// subtree via HighTrafficRouteRegistrar (see its doc comment) to get
+		// a much higher per-IP limit than the default 60/min: a room full of
+		// phones behind one venue Wi-Fi opening a public board link (plus its
+		// SSE stream) would otherwise exhaust the general budget on its own.
+		r.Group(func(r chi.Router) {
+			r.Use(s.metrics.middleware)
+			r.Use(httprate.Limit(highTrafficRateLimit, time.Minute, httprate.WithKeyFuncs(httputil.ClientIPKey)))
+
+			for _, reg := range s.registrars {
+				if hr, ok := reg.(HighTrafficRouteRegistrar); ok {
+					hr.RegisterHighTrafficRoutes(r, middleware.Timeout(s.requestTimeout))
 				}
 			}
 		})

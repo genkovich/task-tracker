@@ -5,6 +5,8 @@
 package board
 
 import (
+	"net/http"
+
 	"github.com/go-chi/chi/v5"
 
 	"github.com/genkovich/task-tracker/api/internal/modules/board/app"
@@ -50,20 +52,35 @@ func New(db *database.DB) *Handler {
 	}
 }
 
-// RegisterRoutes mounts the request/response board routes (team-editor
-// boards/task/link, public-viewer board) on r — the server's shared /api/v1
-// registrar group, which carries the per-request timeout.
+// RegisterRoutes mounts the team-editor request/response board routes
+// (boards/task/link) on r — the server's shared /api/v1 registrar group,
+// which carries the per-request timeout. The public-viewer board route is
+// deliberately NOT mounted here — see RegisterHighTrafficRoutes.
 func (h *Handler) RegisterRoutes(r chi.Router) {
 	h.board.RegisterRoutes(r)
 	h.task.RegisterRoutes(r)
 	h.link.RegisterRoutes(r)
-	h.public.RegisterRoutes(r)
 }
 
-// RegisterStreamingRoutes mounts the long-lived SSE routes (ADR-0002) on r —
+// RegisterStreamingRoutes mounts the team-editor SSE stream (ADR-0002) on r —
 // the server's streaming group: same rate limit and metrics as everything
 // else, but no per-request timeout, which would cut every stream at the
-// timeout mark.
+// timeout mark. The public-viewer SSE stream is deliberately NOT mounted
+// here — see RegisterHighTrafficRoutes.
 func (h *Handler) RegisterStreamingRoutes(r chi.Router) {
 	h.sse.RegisterRoutes(r)
+}
+
+// RegisterHighTrafficRoutes mounts the public-viewer board fetch and its SSE
+// stream on the server's higher-rate-limit subtree (server.HighTrafficRouteRegistrar):
+// many viewers behind a handful of shared IPs (a workshop room on one venue
+// Wi-Fi) can open both at once, far past the default 60 req/min. The board
+// fetch keeps the standard per-request timeout (timeoutMW); the SSE stream,
+// like the team-editor one, must not — a timeout would cut it mid-flight.
+func (h *Handler) RegisterHighTrafficRoutes(r chi.Router, timeoutMW func(http.Handler) http.Handler) {
+	r.Group(func(r chi.Router) {
+		r.Use(timeoutMW)
+		h.public.RegisterRoutes(r)
+	})
+	h.sse.RegisterPublicRoutes(r)
 }

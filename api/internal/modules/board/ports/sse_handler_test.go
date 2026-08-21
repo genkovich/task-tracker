@@ -54,7 +54,7 @@ func TestStreamPublicBoardEvents_RevokeBetweenValidateAndRegister_ClosesStream(t
 
 	h := NewSSEHandler(registry, svc, &neverCalledBoardStateService{t: t})
 	r := chi.NewRouter()
-	h.RegisterRoutes(r)
+	h.RegisterPublicRoutes(r)
 
 	// The timeout bounds the failure mode, not the happy path: an unfixed
 	// handler streams until the client context ends.
