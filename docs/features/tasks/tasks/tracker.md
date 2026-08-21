@@ -16,10 +16,10 @@
 | T9 | SSE handlers + public board resolve | ports | genkovich | M | T4, T6, T8 | done |
 | T10 | Wire the tasks module | wiring | genkovich | M | T7, T8, T9 | done |
 | T11 | Backend integration tests: concurrency | tests | genkovich | M | T10 | done |
-| T12 | SCR-01 Board page | ui | genkovich | M | — | todo |
-| T13 | SCR-01 Add/edit card dialog | ui | genkovich | S | T12 | todo |
-| T14 | SCR-01 Public-link control | ui | genkovich | S | T12 | todo |
-| T15 | SCR-02/03 Public viewer page | ui | genkovich | M | — | todo |
-| T16 | End-to-end smoke test | tests | genkovich | M | T10, T13, T14, T15 | todo |
+| T12 | SCR-01 Board page | ui | genkovich | M | — | done |
+| T13 | SCR-01 Add/edit card dialog | ui | genkovich | S | T12 | done |
+| T14 | SCR-01 Public-link control | ui | genkovich | S | T12 | done |
+| T15 | SCR-02/03 Public viewer page | ui | genkovich | M | — | done |
+| T16 | End-to-end smoke test | tests | genkovich | M | T10, T13, T14, T15 | done |
 
 **Total:** 16 tasks, ~11 person-days (S≈0.5d, M≈1d).
