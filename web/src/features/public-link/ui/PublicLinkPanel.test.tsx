@@ -128,6 +128,38 @@ describe("PublicLinkPanel", () => {
     expect(mockIssue).not.toHaveBeenCalled();
   });
 
+  // Re-review 2026-08-21 re2 #9: board refetches deliver a fresh
+  // `public_link` (issued or revoked in another tab) — a mounted panel must
+  // adopt the prop change, not stay frozen on its mount-time snapshot.
+  it("adopts a public_link arriving via a prop change after mount", async () => {
+    const user = userEvent.setup();
+
+    const { rerender } = render(<PublicLinkPanel publicLink={null} />);
+    await openPanel(user);
+    expect(screen.getByRole("button", { name: /отримати лінк|get link/i })).toBeInTheDocument();
+
+    rerender(<PublicLinkPanel publicLink={issuedLink} />);
+
+    expect(await screen.findByText(/opaque-token-abc123/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /відкликати|revoke/i })).toBeInTheDocument();
+    expect(mockIssue).not.toHaveBeenCalled();
+  });
+
+  it("clears to the no-link state when the prop's link disappears after mount", async () => {
+    const user = userEvent.setup();
+
+    const { rerender } = render(<PublicLinkPanel publicLink={issuedLink} />);
+    await openPanel(user);
+    expect(await screen.findByText(/opaque-token-abc123/)).toBeInTheDocument();
+
+    rerender(<PublicLinkPanel publicLink={null} />);
+
+    await waitFor(() => {
+      expect(screen.queryByText(/opaque-token-abc123/)).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: /отримати лінк|get link/i })).toBeInTheDocument();
+  });
+
   // AC-08 (US-06) happy path — spec.md §5: "team member відкликає цей лінк" ->
   // "система припиняє показувати стан board за цим лінком". DoD: "revoking from
   // the active-link state clears the panel back to no-link".

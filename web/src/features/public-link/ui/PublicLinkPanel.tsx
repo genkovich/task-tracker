@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Popover,
   PopoverContent,
@@ -22,6 +22,13 @@ export function PublicLinkPanel({ publicLink = null }: PublicLinkPanelProps) {
   const [state, setState] = useState<PublicLinkState>(publicLink ? activeLink(publicLink) : noLink);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+
+  // A board refetch can deliver a fresh `public_link` (issued or revoked in
+  // another tab) — adopt the prop change. Local issue/revoke transitions
+  // are untouched: they don't change the prop, so this never re-runs.
+  useEffect(() => {
+    setState(publicLink ? activeLink(publicLink) : noLink);
+  }, [publicLink]);
 
   async function handleIssue() {
     setError(null);
