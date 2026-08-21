@@ -1,0 +1,297 @@
+openapi: 3.1.0
+
+info:
+  title: Boards API (delta)
+  version: 0.1.0
+  description: |
+    Дельта до `docs/features/board/contracts/openapi.yaml` — лише нові та змінені
+    шляхи фічі boards (кілька дощок + живий дашборд). Все інше (tasks edit/move/
+    delete, public viewer `/api/v1/public/{token}/*`) — без змін, дивись базовий
+    контракт.
+
+    Видалені шляхи (без сумісності — продукт молодий):
+    - `GET /api/v1/board` → замінений на `GET /api/v1/boards/{boardId}`
+    - `GET /api/v1/board/events` → `GET /api/v1/boards/{boardId}/events`
+    - `POST|DELETE /api/v1/board/public-link` → `POST|DELETE /api/v1/boards/{boardId}/public-link`
+
+    Змінений шлях:
+    - `POST /api/v1/tasks` — `TaskCreate` тепер вимагає `board_id`: «задача
+      створюється в найлівішій column» (board AC-01) потребує знати, якої дошки;
+      column і далі обирає сервер, не клієнт (BRD-08).
+
+    SSE-події скоуплені дошкою (BRD-05): broadcast дошки A доставляється лише
+    з'єднанням дошки A (редакторським і viewer-токену цієї дошки).
+
+security: []
+
+paths:
+  /api/v1/boards:
+    get:
+      summary: Список дощок для дашборда (BRD-01)
+      operationId: listBoards
+      security: []
+      responses:
+        "200":
+          description: Усі дошки, за датою створення (найстарша перша)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/BoardSummary" }
+    post:
+      summary: Створити дошку (BRD-02)
+      description: >-
+        Транзакційно створює дошку та її три фіксовані колонки
+        (To Do / In Progress / Done, позиції 0..2). Валідація name — як title
+        задачі: непорожній, ≤200 символів (BRD-03).
+      operationId: createBoard
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BoardCreate" }
+            example: { name: "Воркшоп" }
+      responses:
+        "201":
+          description: Повна новостворена дошка (колонки порожні, лінка немає)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BoardState" }
+        "400":
+          description: Тіло, що не парситься як JSON (`validation.invalid_body`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: >-
+            Порожня назва (`board.name_required`) або назва понад 200 символів
+            (`board.name_too_long`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error:
+                  code: "board.name_required"
+                  message: "board name is required"
+
+  /api/v1/boards/{boardId}:
+    get:
+      summary: Стан однієї дошки (BRD-04; заміна GET /api/v1/board)
+      operationId: getBoard
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/BoardId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BoardState" }
+        "400":
+          description: "`boardId` не є UUID (`validation.invalid_board_id`)"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          $ref: "#/components/responses/BoardNotFound"
+
+  /api/v1/boards/{boardId}/events:
+    get:
+      summary: Live-оновлення однієї дошки (SSE; заміна GET /api/v1/board/events)
+      description: >-
+        `text/event-stream`, подія `board.state_changed` без payload — семантика
+        base-контракту, але потік скоуплений дошкою (BRD-05): мутації інших дощок
+        сюди не транслюються.
+      operationId: streamBoardEvents
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/BoardId"
+      responses:
+        "200":
+          description: SSE-потік подій `board.state_changed` цієї дошки
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "404":
+          $ref: "#/components/responses/BoardNotFound"
+
+  /api/v1/boards/{boardId}/public-link:
+    post:
+      summary: Видати публічний лінк дошки (BRD-06; заміна POST /api/v1/board/public-link)
+      operationId: issuePublicLink
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/BoardId"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicLink" }
+        "404":
+          $ref: "#/components/responses/BoardNotFound"
+        "409":
+          description: У дошки вже є активний лінк (`board.link_already_active`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      summary: Відкликати публічний лінк дошки (BRD-06)
+      operationId: revokePublicLink
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/BoardId"
+      responses:
+        "204": { description: Відкликано; SSE-з'єднання глядачів цього лінка закриті }
+        "404":
+          description: Активного лінка немає (`board.link_not_found`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/tasks:
+    post:
+      summary: Створити task (змінений — TaskCreate вимагає board_id, BRD-08)
+      operationId: createTask
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskCreate" }
+            example:
+              board_id: "019a0000-0000-7000-8000-000000000101"
+              title: "Test task"
+      responses:
+        "201":
+          description: Created — task у найлівішій column вказаної дошки
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400":
+          description: >-
+            Невалідне тіло (`validation.invalid_body`) або `board_id` не UUID
+            (`validation.invalid_board_id`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          $ref: "#/components/responses/BoardNotFound"
+        "422":
+          description: Помилки title/assignee — як у base-контракті
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: Rate limit створення task — як у base-контракті
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+components:
+  parameters:
+    BoardId:
+      name: boardId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    BoardNotFound:
+      description: Дошку не знайдено (`board.not_found`)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error:
+              code: "board.not_found"
+              message: "board not found"
+
+  schemas:
+    Error:
+      # Той самий unified error envelope, що в base-контракті.
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, example: "board.not_found" }
+            message: { type: string }
+
+    BoardSummary:
+      type: object
+      required: [id, name, created_at, task_count]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 200 }
+        created_at: { type: string, format: date-time }
+        task_count: { type: integer, minimum: 0 }
+
+    BoardCreate:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+
+    # Розширений BoardState: base-контрактні columns/public_link + id/name/created_at
+    # самої дошки (дашборд-навігація і заголовок сторінки дошки).
+    BoardState:
+      type: object
+      required: [id, name, created_at, columns, public_link]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 200 }
+        created_at: { type: string, format: date-time }
+        columns:
+          type: array
+          items: { $ref: "#/components/schemas/Column" }
+        public_link:
+          oneOf:
+            - $ref: "#/components/schemas/PublicLink"
+            - type: "null"
+
+    # Column / Task / PublicLink — ідентичні base-контракту, продубльовані для
+    # самодостатності файлу.
+    Column:
+      type: object
+      required: [id, name, position, tasks]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 100 }
+        position: { type: integer, minimum: 0 }
+        tasks:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+
+    Task:
+      type: object
+      required: [id, column_id, title, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        column_id: { type: string, format: uuid }
+        title: { type: string, maxLength: 200 }
+        assignee: { type: [string, "null"], maxLength: 200 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    TaskCreate:
+      type: object
+      required: [board_id, title]
+      additionalProperties: false
+      properties:
+        board_id: { type: string, format: uuid }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        assignee: { type: [string, "null"], maxLength: 200 }
+
+    PublicLink:
+      type: object
+      required: [token, created_at]
+      properties:
+        token: { type: string, maxLength: 64 }
+        created_at: { type: string, format: date-time }
