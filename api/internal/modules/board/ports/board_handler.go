@@ -63,12 +63,7 @@ func (h *BoardHandler) handleListBoards(w http.ResponseWriter, r *http.Request) 
 
 	resp := make([]BoardSummaryResponse, 0, len(boards))
 	for _, b := range boards {
-		resp = append(resp, BoardSummaryResponse{
-			ID:        b.ID,
-			Name:      b.Name,
-			CreatedAt: b.CreatedAt,
-			TaskCount: b.TaskCount,
-		})
+		resp = append(resp, BoardSummaryResponse(b))
 	}
 	httputil.WriteJSON(w, resp, http.StatusOK)
 }
