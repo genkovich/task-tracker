@@ -6,7 +6,7 @@ export function GoogleLoginButton() {
   const { login } = useAuth();
 
   return (
-    <Button variant="outline" size="lg" className="w-full" onClick={login}>
+    <Button size="lg" className="w-full rounded-full gap-2 sm:w-auto" onClick={login}>
       <GoogleIcon />
       Sign in with Google
     </Button>

@@ -23,29 +23,23 @@ describe("LoginPage", () => {
     );
   }
 
-  it("renders the my.app wordmark", () => {
+  it("renders the product name as the page heading", () => {
     renderPage();
 
-    expect(screen.getByText("my")).toBeInTheDocument();
-    expect(screen.getByText("app")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Task Tracker" })).toBeInTheDocument();
   });
 
-  it("has a sign-in heading with a sentence-case label", () => {
+  it("renders a one-line value proposition", () => {
     renderPage();
 
-    expect(screen.getByRole("heading", { name: /sign in/i })).toBeInTheDocument();
+    expect(
+      screen.getByText("Every board, every task, one shared workspace."),
+    ).toBeInTheDocument();
   });
 
   it("renders the Google sign-in button", () => {
     renderPage();
 
     expect(screen.getByRole("button", { name: /sign in with google/i })).toBeInTheDocument();
-  });
-
-  it("links back to the landing page from the wordmark", () => {
-    renderPage();
-
-    const wordmarkLink = screen.getByRole("link", { name: /my\.app/i });
-    expect(wordmarkLink).toHaveAttribute("href", "/");
   });
 });
