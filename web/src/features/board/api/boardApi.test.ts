@@ -136,7 +136,12 @@ describe("boardApi.editTask", () => {
 });
 
 describe("boardApi.moveTask", () => {
-  it("POSTs the target column to /api/v1/tasks/{taskId}/move with a generated Idempotency-Key header", async () => {
+  // Re-review 2026-08-21 re2 #4: the contract (openapi.yaml) has no
+  // Idempotency-Key on move, and the API's CORS AllowedHeaders doesn't know
+  // it — sending it failed the preflight and broke move in dev (:5173 →
+  // :8080). A move retry is naturally idempotent server-side; the client
+  // must send only contract headers.
+  it("POSTs the target column to /api/v1/tasks/{taskId}/move without an Idempotency-Key header", async () => {
     const moved = {
       id: "task-1",
       column_id: "col-2",
@@ -157,31 +162,9 @@ describe("boardApi.moveTask", () => {
     expect(JSON.parse(options.body)).toEqual({ column_id: "col-2" });
 
     const headers = options.headers as Record<string, string>;
-    const idemKey = headers["Idempotency-Key"];
-    expect(idemKey).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    expect(Object.keys(headers)).not.toContain("Idempotency-Key");
 
     expect(result).toEqual(moved);
-  });
-
-  it("generates a fresh Idempotency-Key on each call", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({
-        id: "task-1",
-        column_id: "col-2",
-        title: "t",
-        assignee: null,
-        created_at: "2026-08-20T00:00:00Z",
-        updated_at: "2026-08-20T00:00:00Z",
-      }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    await boardApi.moveTask("task-1", "col-2");
-    await boardApi.moveTask("task-1", "col-3");
-
-    const key1 = (fetchMock.mock.calls[0][1].headers as Record<string, string>)["Idempotency-Key"];
-    const key2 = (fetchMock.mock.calls[1][1].headers as Record<string, string>)["Idempotency-Key"];
-    expect(key1).not.toBe(key2);
   });
 
   it("maps a 422 invalid-column error to an ApiClientError", async () => {

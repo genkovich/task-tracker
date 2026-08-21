@@ -15,12 +15,11 @@ export const boardApi = {
   editTask: (taskId: string, data: TaskUpdate) =>
     apiClient.patch<Task>(`/tasks/${encodeURIComponent(taskId)}`, data),
 
+  // No Idempotency-Key here: the contract doesn't define one, the API's CORS
+  // AllowedHeaders would fail the preflight, and a move retry is naturally
+  // idempotent server-side (same task, same column, last-write-wins).
   moveTask: (taskId: string, columnId: string) =>
-    apiClient.post<Task>(
-      `/tasks/${encodeURIComponent(taskId)}/move`,
-      { column_id: columnId },
-      { "Idempotency-Key": crypto.randomUUID() },
-    ),
+    apiClient.post<Task>(`/tasks/${encodeURIComponent(taskId)}/move`, { column_id: columnId }),
 
   deleteTask: (taskId: string) => apiClient.delete<void>(`/tasks/${encodeURIComponent(taskId)}`),
 };
