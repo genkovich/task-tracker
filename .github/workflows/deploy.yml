@@ -68,6 +68,19 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-api, build-web]
     steps:
+      - uses: actions/checkout@v4
+      # Конфіги — теж код: без цього кроку зміни Caddyfile/compose у репо
+      # ніколи не доїжджають до сервера (перший сетап копіював їх руками).
+      - name: Sync deploy configs
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: "deploy/docker-compose.prod.yml,deploy/Caddyfile,deploy/prometheus,deploy/grafana"
+          target: /opt/task-tracker
+          strip_components: 1
+          overwrite: true
       - uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.DEPLOY_HOST }}
@@ -79,6 +92,8 @@ jobs:
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml run --rm migrate
             docker compose -f docker-compose.prod.yml up -d
+            # Caddyfile міг змінитись — graceful reload без розриву TLS.
+            docker compose -f docker-compose.prod.yml exec -T caddy caddy reload --config /etc/caddy/Caddyfile || true
             for i in $(seq 1 20); do
               if curl -fsS http://127.0.0.1:8080/readyz >/dev/null; then
                 echo "readyz OK"; exit 0

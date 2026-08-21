@@ -4,7 +4,22 @@
 # /battery:observability
 
 {$DOMAIN} {
-	encode zstd gzip
+	# Стискаємо лише перелічені типи. Дефолтний match у encode покриває text/*,
+	# куди підпадає і text/event-stream — а стиснутий SSE-стрім Caddy буферизує
+	# цілком, і жоден flush_interval це не рятує: клієнт не бачить ані байта.
+	# Доведено живим прогоном 2026-08-21 (api віддає keepalive, з encode — тиша).
+	encode zstd gzip {
+		match {
+			header Content-Type text/html*
+			header Content-Type text/css*
+			header Content-Type text/plain*
+			header Content-Type text/javascript*
+			header Content-Type application/json*
+			header Content-Type application/javascript*
+			header Content-Type application/xml*
+			header Content-Type image/svg+xml*
+		}
+	}
 
 	handle /api/* {
 		# SSE (sad.md §7, ADR-0002): стрім не можна буферизувати. flush_interval -1
