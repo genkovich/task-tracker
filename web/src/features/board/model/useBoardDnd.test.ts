@@ -106,6 +106,120 @@ describe("useBoardDnd — syncs to fresh initialColumns without a remount (re2 #
   });
 });
 
+// The pointer-drag orchestration: TaskCard reports start/move/end, the hook
+// resolves the hovered column via document.elementFromPoint against
+// [data-column-id] markers and hands the drop to the same optimistic
+// handleDrop path.
+describe("useBoardDnd — pointer drag orchestration", () => {
+  function columnElement(id: string) {
+    const el = document.createElement("section");
+    el.setAttribute("data-column-id", id);
+    return el;
+  }
+
+  it("tracks the hovered column for the drop-target highlight and drops on it", async () => {
+    const moveTask = vi.fn().mockResolvedValue(undefined);
+    const columns = makeColumns();
+    const { result } = renderHook(() => useBoardDnd(columns, { moveTask }));
+
+    act(() => {
+      result.current.startDrag("task-1");
+    });
+    expect(result.current.drag).toEqual({ taskId: "task-1", overColumnId: null });
+
+    const elementFromPoint = vi
+      .spyOn(document, "elementFromPoint")
+      .mockReturnValue(columnElement("col-doing"));
+    act(() => {
+      result.current.moveDrag(100, 200);
+    });
+    elementFromPoint.mockRestore();
+    expect(result.current.drag).toEqual({ taskId: "task-1", overColumnId: "col-doing" });
+
+    act(() => {
+      result.current.endDrag();
+    });
+
+    // The drop went through the same optimistic path (AC-04).
+    expect(result.current.drag).toBeNull();
+    const doing = result.current.columns.find((c) => c.id === "col-doing")!;
+    expect(doing.tasks.map((t) => t.id)).toEqual(["task-1"]);
+    expect(moveTask).toHaveBeenCalledTimes(1);
+    expect(moveTask).toHaveBeenCalledWith("task-1", "col-doing");
+    await waitFor(() => expect(moveTask).toHaveResolved());
+  });
+
+  // AC-05: releasing outside any column is a no-op — no move, no API call.
+  it("does nothing when released outside any column", () => {
+    const moveTask = vi.fn();
+    const columns = makeColumns();
+    const { result } = renderHook(() => useBoardDnd(columns, { moveTask }));
+
+    act(() => {
+      result.current.startDrag("task-1");
+    });
+    const elementFromPoint = vi.spyOn(document, "elementFromPoint").mockReturnValue(null);
+    act(() => {
+      result.current.moveDrag(5, 5);
+    });
+    elementFromPoint.mockRestore();
+    act(() => {
+      result.current.endDrag();
+    });
+
+    expect(result.current.drag).toBeNull();
+    const todo = result.current.columns.find((c) => c.id === "col-todo")!;
+    expect(todo.tasks.map((t) => t.id)).toEqual(["task-1"]);
+    expect(moveTask).not.toHaveBeenCalled();
+  });
+
+  it("cancels the drag on Escape — releasing afterwards moves nothing", () => {
+    const moveTask = vi.fn();
+    const columns = makeColumns();
+    const { result } = renderHook(() => useBoardDnd(columns, { moveTask }));
+
+    act(() => {
+      result.current.startDrag("task-1");
+    });
+    const elementFromPoint = vi
+      .spyOn(document, "elementFromPoint")
+      .mockReturnValue(columnElement("col-doing"));
+    act(() => {
+      result.current.moveDrag(100, 200);
+    });
+    elementFromPoint.mockRestore();
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(result.current.drag).toBeNull();
+
+    // The pointer is released after the abort — endDrag must be a no-op.
+    act(() => {
+      result.current.endDrag();
+    });
+    const todo = result.current.columns.find((c) => c.id === "col-todo")!;
+    expect(todo.tasks.map((t) => t.id)).toEqual(["task-1"]);
+    expect(moveTask).not.toHaveBeenCalled();
+  });
+
+  it("cancels the drag on pointercancel via cancelDrag", () => {
+    const moveTask = vi.fn();
+    const columns = makeColumns();
+    const { result } = renderHook(() => useBoardDnd(columns, { moveTask }));
+
+    act(() => {
+      result.current.startDrag("task-1");
+    });
+    act(() => {
+      result.current.cancelDrag();
+    });
+
+    expect(result.current.drag).toBeNull();
+    expect(moveTask).not.toHaveBeenCalled();
+  });
+});
+
 describe("useBoardDnd", () => {
   // AC-04: dropping a task on a valid column optimistically moves it locally
   // and calls the move API exactly once.

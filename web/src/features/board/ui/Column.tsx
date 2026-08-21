@@ -12,8 +12,16 @@ export interface ColumnProps {
   /** AC-01: quick-add only renders in the leftmost column (`position === 0`). */
   isLeftmost?: boolean;
   onTaskClick?: (task: Task) => void;
+  /** Id of the task currently being pointer-dragged (useBoardDnd state) —
+   * lets the dragged card react to an external cancel (Escape). */
+  dragTaskId?: string | null;
+  /** This column is under the pointer during a drag — highlight it as the
+   * drop target. */
+  isDropTarget?: boolean;
   onTaskDragStart?: (task: Task) => void;
-  onDropTask?: (taskId: string) => void;
+  onTaskDragMove?: (x: number, y: number) => void;
+  onTaskDragEnd?: () => void;
+  onTaskDragCancel?: () => void;
   /** Quick-add created a task — the caller owns the column data and decides
    * how to show it (append locally or refetch the board). */
   onTaskCreated?: (task: Task) => void;
@@ -27,13 +35,19 @@ const COLUMN_ACCENTS = ["bg-status-todo", "bg-status-in-progress", "bg-status-do
 
 /** One board column: dot + name + count header (SCR-01), the ordered task
  * list, and — in the leftmost column — the «+» that opens the inline
- * quick-add form (SCR-02). */
+ * quick-add form (SCR-02). The `data-column-id` marker is the drop target:
+ * useBoardDnd resolves it via `document.elementFromPoint(...)` during a
+ * pointer drag — Pointer Events, not HTML5 dragover/drop, so touch works. */
 export function Column({
   column,
   isLeftmost,
   onTaskClick,
+  dragTaskId,
+  isDropTarget,
   onTaskDragStart,
-  onDropTask,
+  onTaskDragMove,
+  onTaskDragEnd,
+  onTaskDragCancel,
   onTaskCreated,
   readOnly,
 }: ColumnProps) {
@@ -43,17 +57,12 @@ export function Column({
 
   return (
     <section
-      className="flex w-full flex-col gap-3 sm:w-[340px] sm:shrink-0"
-      onDragOver={!readOnly && onDropTask ? (e) => e.preventDefault() : undefined}
-      onDrop={
-        !readOnly && onDropTask
-          ? (e) => {
-              e.preventDefault();
-              const taskId = e.dataTransfer.getData("text/plain");
-              if (taskId) onDropTask(taskId);
-            }
-          : undefined
-      }
+      data-column-id={column.id}
+      className={cn(
+        "flex w-full flex-col gap-3 rounded-2xl transition-colors sm:w-[340px] sm:shrink-0",
+        // ring is a box-shadow — the drop highlight causes no layout shift.
+        isDropTarget && "bg-white/[0.06] ring-1 ring-white/20",
+      )}
     >
       <header className="flex h-8 items-center gap-2">
         <span aria-hidden className={cn("size-2 rounded-full", accent)} />
@@ -84,8 +93,12 @@ export function Column({
             task={task}
             accentClass={accent}
             onClick={readOnly ? undefined : onTaskClick}
-            onDragStart={readOnly ? undefined : onTaskDragStart}
             draggable={!readOnly}
+            dragging={dragTaskId != null && dragTaskId === task.id}
+            onDragStart={readOnly ? undefined : onTaskDragStart}
+            onDragMove={readOnly ? undefined : onTaskDragMove}
+            onDragEnd={readOnly ? undefined : onTaskDragEnd}
+            onDragCancel={readOnly ? undefined : onTaskDragCancel}
           />
         ))}
       </div>

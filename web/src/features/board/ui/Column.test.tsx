@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Column } from "./Column";
 import type { Column as ColumnState, Task } from "@/features/board/api/types";
@@ -61,6 +61,69 @@ describe("Column — renders the tasks the caller passes in", () => {
 
     expect(screen.queryByText("First task")).not.toBeInTheDocument();
     expect(screen.getByText("Second task")).toBeInTheDocument();
+  });
+});
+
+describe("Column — pointer drag wiring", () => {
+  const taskInColumn = {
+    id: "task-1",
+    column_id: "col-1",
+    title: "Draggable task",
+    assignee: null,
+    created_at: "2026-08-20T00:00:00Z",
+    updated_at: "2026-08-20T00:00:00Z",
+  };
+
+  // useBoardDnd resolves the drop target via
+  // document.elementFromPoint(...).closest("[data-column-id]") — the marker
+  // is the drop contract between the hook and the column.
+  it("marks the section with data-column-id as the drop target", () => {
+    const { container } = render(<Column column={leftmostColumn} />);
+    expect(container.querySelector('section[data-column-id="col-1"]')).not.toBeNull();
+  });
+
+  it("highlights the column while it is the drop target", () => {
+    const { container, rerender } = render(<Column column={leftmostColumn} />);
+    const section = container.querySelector("section")!;
+    expect(section.className).not.toContain("ring-1");
+
+    rerender(<Column column={leftmostColumn} isDropTarget />);
+    expect(section.className).toContain("ring-1");
+  });
+
+  it("starts a pointer drag on a card and reports it up", () => {
+    const onTaskDragStart = vi.fn();
+    render(
+      <Column
+        column={{ ...leftmostColumn, tasks: [taskInColumn] }}
+        onTaskDragStart={onTaskDragStart}
+      />,
+    );
+
+    const card = screen.getByText("Draggable task").closest('[data-slot="card"]')!;
+    fireEvent.pointerDown(card, { clientX: 0, clientY: 0, pointerId: 1 });
+    fireEvent.pointerMove(card, { clientX: 0, clientY: 40, pointerId: 1 });
+
+    expect(onTaskDragStart).toHaveBeenCalledWith(taskInColumn);
+  });
+
+  // AC-10: the public viewer's cards must not be draggable even when drag
+  // handlers are (incorrectly) passed in.
+  it("does not wire drag on read-only cards", () => {
+    const onTaskDragStart = vi.fn();
+    render(
+      <Column
+        column={{ ...leftmostColumn, tasks: [taskInColumn] }}
+        onTaskDragStart={onTaskDragStart}
+        readOnly
+      />,
+    );
+
+    const card = screen.getByText("Draggable task").closest('[data-slot="card"]')!;
+    fireEvent.pointerDown(card, { clientX: 0, clientY: 0, pointerId: 1 });
+    fireEvent.pointerMove(card, { clientX: 0, clientY: 40, pointerId: 1 });
+
+    expect(onTaskDragStart).not.toHaveBeenCalled();
   });
 });
 
