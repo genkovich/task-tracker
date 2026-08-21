@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/genkovich/task-tracker/api/internal/modules/board"
@@ -143,5 +144,63 @@ func TestBoardWiring_SSEOutlivesRequestTimeout(t *testing.T) {
 		case <-deadline:
 			t.Fatal("no board.state_changed arrived on a stream older than the request timeout")
 		}
+	}
+}
+
+// TestPublicRoutes_MutatingMethodsRefused covers AC-10 against the fully
+// wired server (review 2026-08-21 re2, #10): the earlier version ran on a
+// fixture that registered only the public handler, so its 404s were
+// guaranteed by the empty router — a tautology. Here server.New carries
+// every board route (task CRUD included), the GET sanity check proves the
+// public path itself is live on this router, and every mutating method
+// under /api/v1/public/{token}/... is still refused by routing (405 on the
+// read-only board path, 404 on paths that are not registered), never
+// executed — even with a VALID token.
+func TestPublicRoutes_MutatingMethodsRefused(t *testing.T) {
+	ts := setupBoardServer(t)
+	ctx := context.Background()
+
+	// Issue a real public link over the team-editor HTTP route.
+	linkResp, err := http.Post(ts.URL+"/api/v1/board/public-link", "application/json", nil) //nolint:noctx // test helper
+	require.NoError(t, err)
+	var link struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.NewDecoder(linkResp.Body).Decode(&link))
+	linkResp.Body.Close()
+	require.Equal(t, http.StatusCreated, linkResp.StatusCode)
+	require.NotEmpty(t, link.Token)
+
+	base := ts.URL + "/api/v1/public/" + link.Token
+
+	// Sanity: the read-only route answers on this very server, so the
+	// refusals below prove routing policy, not an unregistered path.
+	getResp, err := http.Get(base + "/board") //nolint:noctx // test helper
+	require.NoError(t, err)
+	_, _ = io.Copy(io.Discard, getResp.Body)
+	getResp.Body.Close()
+	require.Equal(t, http.StatusOK, getResp.StatusCode, "GET public board must work with a valid token")
+
+	cases := []struct {
+		method string
+		url    string
+	}{
+		{http.MethodPost, base + "/board"},
+		{http.MethodPatch, base + "/board"},
+		{http.MethodDelete, base + "/board"},
+		{http.MethodPost, base + "/tasks"},
+		{http.MethodDelete, base + "/tasks/" + uuid.NewString()},
+	}
+
+	for _, tc := range cases {
+		req, err := http.NewRequestWithContext(ctx, tc.method, tc.url, nil)
+		require.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+
+		require.Containsf(t, []int{http.StatusNotFound, http.StatusMethodNotAllowed}, resp.StatusCode,
+			"AC-10: %s %s must be refused by routing, got %d", tc.method, tc.url, resp.StatusCode)
 	}
 }
