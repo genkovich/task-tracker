@@ -44,7 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem("refresh_token");
     }
     setUser(null);
-    navigate("/login");
+    navigate("/");
   }, [navigate]);
 
   useEffect(() => {

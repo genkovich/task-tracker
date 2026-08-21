@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/httprate"
 
 	"github.com/genkovich/task-tracker/api/internal/platform/database"
+	"github.com/genkovich/task-tracker/api/internal/platform/httputil"
 )
 
 // RouteRegistrar is implemented by module handlers to register their routes.
@@ -27,6 +28,15 @@ type ProtectedRouteRegistrar interface {
 	RegisterProtectedRoutes(r chi.Router)
 }
 
+// StreamingRouteRegistrar is optionally implemented by modules that serve
+// long-lived streaming responses (e.g. SSE). These routes share the rate
+// limiter and metrics middleware with every other route but are mounted
+// outside the per-request timeout, which would otherwise cancel the stream's
+// context mid-flight.
+type StreamingRouteRegistrar interface {
+	RegisterStreamingRoutes(r chi.Router)
+}
+
 // Option configures the Server.
 type Option func(*Server)
 
@@ -37,24 +47,35 @@ func WithAppEnv(env string) Option {
 	}
 }
 
+// WithRequestTimeout overrides the per-request timeout applied to
+// non-streaming routes (default 30s). Streaming routes are never subject to
+// it.
+func WithRequestTimeout(d time.Duration) Option {
+	return func(s *Server) {
+		s.requestTimeout = d
+	}
+}
+
 type Server struct {
-	router      *chi.Mux
-	db          *database.DB
-	corsOrigins string
-	appEnv      string
-	authMW      func(http.Handler) http.Handler
-	registrars  []RouteRegistrar
-	metrics     *metrics
+	router         *chi.Mux
+	db             *database.DB
+	corsOrigins    string
+	appEnv         string
+	authMW         func(http.Handler) http.Handler
+	registrars     []RouteRegistrar
+	metrics        *metrics
+	requestTimeout time.Duration
 }
 
 func New(db *database.DB, corsOrigins string, authMW func(http.Handler) http.Handler, opts ...any) *Server {
 	s := &Server{
-		router:      chi.NewRouter(),
-		db:          db,
-		corsOrigins: corsOrigins,
-		appEnv:      "development",
-		authMW:      authMW,
-		metrics:     newMetrics(),
+		router:         chi.NewRouter(),
+		db:             db,
+		corsOrigins:    corsOrigins,
+		appEnv:         "development",
+		authMW:         authMW,
+		metrics:        newMetrics(),
+		requestTimeout: 30 * time.Second,
 	}
 
 	// Separate Options from RouteRegistrars.
@@ -91,19 +112,9 @@ func (s *Server) setupMiddleware() {
 	// Caddy is the single trusted hop in front of the API, so the rightmost
 	// X-Forwarded-For entry is the client. Read it with middleware.GetClientIP.
 	s.router.Use(middleware.ClientIPFromXFF())
-	s.router.Use(middleware.Logger)
+	s.router.Use(requestLogger)
 	s.router.Use(middleware.Recoverer)
-	s.router.Use(middleware.Timeout(30 * time.Second))
 	s.router.Use(requestSizeLimit(1 << 20)) // 1 MB
-}
-
-// clientIPKey keys the rate limiter by the proxy-derived client IP and falls
-// back to RemoteAddr for direct (proxyless) connections, e.g. local dev.
-func clientIPKey(r *http.Request) (string, error) {
-	if ip := middleware.GetClientIP(r.Context()); ip != "" {
-		return ip, nil
-	}
-	return httprate.KeyByIP(r)
 }
 
 // securityHeaders adds standard security response headers to every response.
@@ -115,6 +126,48 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// requestLogger logs one line per request via slog, in place of
+// middleware.Logger, whose formatter prints the full RequestURI — that
+// would persist public-link tokens (capability URLs) in the logs. The path
+// is redacted instead; the query string is deliberately not logged.
+func requestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+		start := time.Now()
+
+		next.ServeHTTP(ww, r)
+
+		// The same XFF-then-RemoteAddr resolution the rate limiter keys by:
+		// GetClientIP alone is "" on direct (proxyless) connections.
+		clientIP, _ := httputil.ClientIPKey(r)
+
+		slog.Info("http request",
+			"method", r.Method,
+			"path", redactPublicToken(r.URL.Path),
+			"status", ww.Status(),
+			"bytes", ww.BytesWritten(),
+			"duration", time.Since(start).String(),
+			"request_id", middleware.GetReqID(r.Context()),
+			"client_ip", clientIP,
+		)
+	})
+}
+
+// redactPublicToken replaces the path segment right after "/public/" with a
+// placeholder, so capability-URL tokens never reach the logs.
+func redactPublicToken(path string) string {
+	const marker = "/public/"
+	i := strings.Index(path, marker)
+	if i == -1 {
+		return path
+	}
+	rest := path[i+len(marker):]
+	if j := strings.Index(rest, "/"); j != -1 {
+		return path[:i+len(marker)] + "{redacted}" + rest[j:]
+	}
+	return path[:i+len(marker)] + "{redacted}"
 }
 
 // requestSizeLimit wraps each request body with http.MaxBytesReader to enforce
@@ -137,29 +190,47 @@ func (s *Server) setupRoutes() {
 	s.router.Method(http.MethodGet, "/metrics", s.metrics.handler())
 
 	s.router.Group(func(r chi.Router) {
-		// General rate limit: 60 req/min per IP.
-		r.Use(httprate.Limit(60, time.Minute, httprate.WithKeyFuncs(clientIPKey)))
+		// Metrics wrap the rate limiter, not the other way around: a 429
+		// refused by the limiter must still be counted (status="429"), or an
+		// abuse wave looks like silence on the dashboards.
 		r.Use(s.metrics.middleware)
+		// General rate limit: 60 req/min per IP.
+		r.Use(httprate.Limit(60, time.Minute, httprate.WithKeyFuncs(httputil.ClientIPKey)))
 
 		r.Route("/api/v1", func(r chi.Router) {
-			r.Get("/health", s.handleHealth)
-
-			// Public routes.
-			for _, reg := range s.registrars {
-				reg.RegisterRoutes(r)
-			}
-
-			// Protected routes (require auth middleware).
+			// Regular request/response routes run under the per-request
+			// timeout; streaming routes below must not — the timeout would
+			// cancel a long-lived stream's context mid-flight.
 			r.Group(func(r chi.Router) {
-				if s.authMW != nil {
-					r.Use(s.authMW)
-				}
+				r.Use(middleware.Timeout(s.requestTimeout))
+
+				r.Get("/health", s.handleHealth)
+
+				// Public routes.
 				for _, reg := range s.registrars {
-					if pr, ok := reg.(ProtectedRouteRegistrar); ok {
-						pr.RegisterProtectedRoutes(r)
-					}
+					reg.RegisterRoutes(r)
 				}
+
+				// Protected routes (require auth middleware).
+				r.Group(func(r chi.Router) {
+					if s.authMW != nil {
+						r.Use(s.authMW)
+					}
+					for _, reg := range s.registrars {
+						if pr, ok := reg.(ProtectedRouteRegistrar); ok {
+							pr.RegisterProtectedRoutes(r)
+						}
+					}
+				})
 			})
+
+			// Streaming routes (SSE): rate-limited and metered like the
+			// rest, but no per-request timeout.
+			for _, reg := range s.registrars {
+				if sr, ok := reg.(StreamingRouteRegistrar); ok {
+					sr.RegisterStreamingRoutes(r)
+				}
+			}
 		})
 	})
 }

@@ -1,9 +1,17 @@
+import { Navigate } from "react-router";
 import type { Route } from "./+types/LoginPage";
+import { useAuth } from "@/app/providers/auth";
 import { GoogleLoginButton } from "@/features/auth-by-google/ui/GoogleLoginButton";
 
-export const meta: Route.MetaFunction = () => [{ title: "Sign in — Task Tracker" }];
+export const meta: Route.MetaFunction = () => [{ title: "Task Tracker" }];
 
 export default function LoginPage() {
+  const { user, isLoading } = useAuth();
+
+  if (!isLoading && user) {
+    return <Navigate to="/board" replace />;
+  }
+
   return (
     <div className="dark flex min-h-screen items-center justify-center bg-background px-6 font-sans text-foreground">
       <div className="flex w-full max-w-sm flex-col items-center gap-8 text-center">

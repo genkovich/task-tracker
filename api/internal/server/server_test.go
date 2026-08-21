@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -151,5 +153,70 @@ func TestMetricsRecordsAPIRequestsOnly(t *testing.T) {
 	}
 	if strings.Contains(body, `route="/livez"`) || strings.Contains(body, `route="/metrics"`) {
 		t.Error("operational endpoints must not appear as route labels in HTTP metrics")
+	}
+}
+
+// Review 2026-08-21 re2, #6: without an X-Forwarded-For header (direct
+// connection, e.g. local dev) middleware.GetClientIP returns "" and every
+// log line carried client_ip="" — the request logger must fall back to the
+// RemoteAddr-derived IP, the same way httputil.ClientIPKey does for rate
+// limiting.
+func TestRequestLoggerClientIPFallsBackToRemoteAddr(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	s := New(nil, "http://localhost", nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	req.RemoteAddr = "192.0.2.7:4242"
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, req)
+
+	if !strings.Contains(buf.String(), "client_ip=192.0.2.7") {
+		t.Errorf("expected the request log to carry the RemoteAddr-derived client IP, got:\n%s", buf.String())
+	}
+}
+
+// Review 2026-08-21 re2, #5: requests refused by the rate limiter must
+// still be counted — with the limiter mounted before the metrics middleware
+// every 429 was invisible to /metrics, so an abuse wave looked like silence.
+func TestMetricsRecordRateLimitedRequests(t *testing.T) {
+	s := New(nil, "http://localhost", nil)
+
+	// The general limit is 60 req/min per IP; drive one IP past it.
+	for i := 0; i < 65; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+		req.RemoteAddr = "192.0.2.9:1234"
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, req)
+	}
+
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for /metrics, got %d", rr.Code)
+	}
+
+	if !strings.Contains(rr.Body.String(), `status="429"`) {
+		t.Error("expected a status=\"429\" series in http_requests_total after exceeding the rate limit")
+	}
+}
+
+// Review 2026-08-21, root K: public-link tokens are capability URLs — the
+// request logger must never write them out verbatim.
+func TestRedactPublicToken(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"/api/v1/public/abc123/board", "/api/v1/public/{redacted}/board"},
+		{"/api/v1/public/abc123/events", "/api/v1/public/{redacted}/events"},
+		{"/api/v1/public/abc123", "/api/v1/public/{redacted}"},
+		{"/api/v1/board", "/api/v1/board"},
+		{"/api/v1/tasks/42", "/api/v1/tasks/42"},
+	}
+	for _, tc := range cases {
+		if got := redactPublicToken(tc.in); got != tc.want {
+			t.Errorf("redactPublicToken(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }

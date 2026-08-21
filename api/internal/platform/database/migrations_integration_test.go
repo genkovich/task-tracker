@@ -4,6 +4,7 @@ package database_test
 
 import (
 	"context"
+	"io/fs"
 	"testing"
 
 	"github.com/genkovich/task-tracker/api/internal/platform/database"
@@ -49,13 +50,20 @@ func TestMigrationsIntegration_UsersSchema(t *testing.T) {
 		t.Errorf("expected exactly 1 seeded admin user, got %d", admins)
 	}
 
-	// Roll back 4 steps (000005..000002) — the users table must be gone.
-	if err := database.RunMigrationsDown(migrations.FS, c.DSN, 4); err != nil {
-		t.Fatalf("RunMigrationsDown(4): %v", err)
+	// Roll back everything except the init migration — the users table must
+	// be gone. Count the steps from the embedded FS so new feature migrations
+	// (board added 000006-000011) keep this test honest instead of stale.
+	ups, err := fs.Glob(migrations.FS, "*.up.sql")
+	if err != nil {
+		t.Fatalf("glob migrations: %v", err)
+	}
+	steps := len(ups) - 1
+	if err := database.RunMigrationsDown(migrations.FS, c.DSN, steps); err != nil {
+		t.Fatalf("RunMigrationsDown(%d): %v", steps, err)
 	}
 
 	var exists bool
-	err := c.DB.QueryRow(ctx,
+	err = c.DB.QueryRow(ctx,
 		`SELECT EXISTS (
 			SELECT 1 FROM information_schema.tables
 			WHERE table_schema = 'public' AND table_name = 'users'

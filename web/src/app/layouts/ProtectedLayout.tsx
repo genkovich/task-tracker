@@ -5,7 +5,6 @@ import { AppSidebar } from "@/widgets/app-sidebar/ui/AppSidebar";
 import { TopBar } from "@/widgets/top-bar/ui/TopBar";
 import { BottomTabs } from "@/widgets/bottom-tabs/ui/BottomTabs";
 import { Sheet, SheetContent } from "@/shared/ui/sheet";
-import { Toaster } from "@/shared/ui/sonner";
 import { TooltipProvider } from "@/shared/ui/tooltip";
 
 export default function ProtectedLayout() {
@@ -21,7 +20,7 @@ export default function ProtectedLayout() {
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/" replace />;
   }
 
   return (
@@ -45,7 +44,6 @@ export default function ProtectedLayout() {
           <BottomTabs className="md:hidden" />
         </div>
       </div>
-      <Toaster />
     </TooltipProvider>
   );
 }

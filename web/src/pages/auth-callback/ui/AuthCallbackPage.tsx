@@ -12,7 +12,7 @@ export default function AuthCallbackPage() {
     const code = searchParams.get("code");
 
     if (!code) {
-      navigate("/login", { replace: true });
+      navigate("/", { replace: true });
       return;
     }
 
@@ -25,7 +25,7 @@ export default function AuthCallbackPage() {
         });
 
         if (!res.ok) {
-          navigate("/login", { replace: true });
+          navigate("/", { replace: true });
           return;
         }
 
@@ -38,11 +38,11 @@ export default function AuthCallbackPage() {
         setTokens(data.access_token, data.refresh_token);
 
         await fetchUser();
-        navigate("/dashboard", { replace: true });
+        navigate("/board", { replace: true });
       } catch {
         localStorage.removeItem("access_token");
         localStorage.removeItem("refresh_token");
-        navigate("/login", { replace: true });
+        navigate("/", { replace: true });
       }
     };
 

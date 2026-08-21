@@ -1,0 +1,442 @@
+openapi: 3.1.0
+
+info:
+  title: Board API
+  version: 0.1.0
+  description: |
+    Одна board на весь продукт (`data-model.md` — рівно один seed-рядок `boards`).
+    Team member редагує board напряму (створює/редагує/переміщує/видаляє task) без входу
+    в систему; viewer відкриває board лише на перегляд за одноразово виданим public link
+    (opaque, DB-stored токен — ADR-0003), без реєстрації. Board — перший продуктовий модуль
+    репо і свідомо не використовує наявний auth-каркас (spec §1, ADR-0001): весь API
+    неавтентифікований, тому global `security: []` нижче — не BearerAuth-заглушка, а точне
+    відображення моделі доступу (spec §6.1 — «без входу в систему»).
+    Зміни стану транслюються живим клієнтам через SSE (ADR-0002) — після кожної мутації
+    сервер шле подію-сигнал `board.state_changed` (без payload), і клієнт перезапитує
+    `GET .../board` за встановленим REST-каналом.
+
+servers:
+  - url: https://api.example.com
+    description: Production
+  - url: http://localhost
+    description: Local
+
+# Board свідомо не використовує наявний auth-каркас репо (ADR-0001, spec §6.1) — немає
+# жодної схеми автентифікації; кожна операція явно security: [].
+security: []
+
+paths:
+  # ---------------------------------------------------------------------------
+  # Team editor — редагування board напряму, без автентифікації (spec §6.1).
+  # ---------------------------------------------------------------------------
+  /api/v1/board:
+    get:
+      summary: Отримати поточний стан board (колонки + task)
+      operationId: getBoard
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BoardState" }
+
+  /api/v1/board/events:
+    get:
+      summary: Підписатись на live-оновлення стану board (SSE, ADR-0002)
+      description: >-
+        `text/event-stream`. Сервер шле подію `board.state_changed` (без payload) щоразу,
+        коли будь-яка task чи public link board змінюється; клієнт у відповідь перезапитує
+        `GET /api/v1/board`. Браузерний `EventSource` сам перепідключається — сервер не
+        гарантує доставку пропущених подій під час розриву з'єднання.
+      operationId: streamBoardEvents
+      security: []
+      responses:
+        "200":
+          description: SSE-потік подій `board.state_changed`
+          content:
+            text/event-stream:
+              schema: { type: string }
+
+  /api/v1/tasks:
+    post:
+      summary: Створити нову task (AC-01, AC-02)
+      description: >-
+        Task завжди створюється у найлівішій column (AC-01) — клієнт не обирає column.
+      operationId: createTask
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskCreate" }
+            example:
+              title: "Test task"
+              assignee: "Test User"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400":
+          $ref: "#/components/responses/ValidationBadRequest"
+        "422":
+          description: >-
+            Порожня назва task (AC-02, `task.title_required`), назва понад 200
+            символів (`task.title_too_long`) або виконавець понад 200 символів
+            (`task.assignee_too_long`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error:
+                  code: "task.title_required"
+                  message: "task title is required"
+        "429":
+          description: >-
+            Перевищено ліміт створення task (spec §6.1 abuse case — ≤30/хв з одного клієнта)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error:
+                  code: "task.rate_limited"
+                  message: "too many tasks created, slow down"
+
+  /api/v1/tasks/{taskId}:
+    parameters:
+      - in: path
+        name: taskId
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      summary: Відредагувати назву й/або виконавця task (AC-03)
+      operationId: editTask
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskUpdate" }
+            example:
+              title: "Test task — updated"
+              assignee: "Another User"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400":
+          $ref: "#/components/responses/ValidationBadRequest"
+        "404":
+          $ref: "#/components/responses/TaskNotFound"
+        "422":
+          description: >-
+            Порожня назва task (AC-02, застосовується й до редагування,
+            `task.title_required`), назва понад 200 символів
+            (`task.title_too_long`) або виконавець понад 200 символів
+            (`task.assignee_too_long`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error:
+                  code: "task.title_required"
+                  message: "task title is required"
+    delete:
+      summary: Видалити task (AC-06)
+      operationId: deleteTask
+      security: []
+      responses:
+        "204":
+          description: No Content
+        "400":
+          $ref: "#/components/responses/ValidationBadRequest"
+        "404":
+          $ref: "#/components/responses/TaskNotFound"
+
+  /api/v1/tasks/{taskId}/move:
+    parameters:
+      - in: path
+        name: taskId
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      summary: Перемістити task в іншу column (AC-04, AC-05, AC-05b)
+      description: >-
+        Останній запит, що дійшов до сервера, перемагає (last-write-wins, spec §6 NFR,
+        sad.md §6 Flow 2, AC-05b) — немає version/lock перевірки. Повтор того самого
+        запиту природно ідемпотентний (та сама task у тій самій column), тож окремого
+        Idempotency-Key механізму немає. Після успішного запису сервер розсилає
+        `board.state_changed` усім live-клієнтам (sad.md §6 Flow 1).
+      operationId: moveTask
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskMove" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400":
+          $ref: "#/components/responses/ValidationBadRequest"
+        "404":
+          $ref: "#/components/responses/TaskNotFound"
+        "422":
+          description: >-
+            column_id не відповідає жодній дійсній column (AC-05 — сервер-side запобіжник;
+            клієнт у штатному drag-and-drop взагалі не шле запит при відпусканні поза
+            дійсною column)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error:
+                  code: "board.column_not_found"
+                  message: "target column does not exist"
+
+  /api/v1/board/public-link:
+    post:
+      summary: Видати public link для board (AC-07)
+      description: Given board ще не має активного лінка (AC-07 precondition).
+      operationId: issuePublicLink
+      security: []
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicLink" }
+        "409":
+          description: >-
+            Активний public link уже існує (`public_links.board_id` UNIQUE, data-model.md) —
+            похідна з domain-інваріанта AC-07, sad.md §6 не малює цю гілку окремо
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error:
+                  code: "board.link_already_active"
+                  message: "an active public link already exists — revoke it first"
+    delete:
+      summary: Відкликати чинний public link (AC-08)
+      description: >-
+        Синхронно закриває вже відкриті SSE-з'єднання, автентифіковані відкликаним токеном
+        (sad.md §6, ADR-0002 negative consequence), не лише блокує нові запити.
+      operationId: revokePublicLink
+      security: []
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Немає активного public link для board
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error:
+                  code: "board.link_not_found"
+                  message: "no active public link to revoke"
+
+  # ---------------------------------------------------------------------------
+  # Public viewer — доступ лише за токеном, read-only (AC-09, AC-10, AC-11).
+  # ---------------------------------------------------------------------------
+  /api/v1/public/{token}/board:
+    parameters:
+      - in: path
+        name: token
+        required: true
+        description: Опаковий токен public link (ADR-0003)
+        schema: { type: string }
+    get:
+      summary: Переглянути поточний стан board за public link (AC-09, AC-11)
+      operationId: getPublicBoard
+      security: []
+      responses:
+        "200":
+          description: OK — лише перегляд (AC-09, AC-10)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicBoardState" }
+        "404":
+          $ref: "#/components/responses/PublicLinkInvalid"
+
+  /api/v1/public/{token}/events:
+    parameters:
+      - in: path
+        name: token
+        required: true
+        schema: { type: string }
+    get:
+      summary: Підписатись на live-оновлення board за public link (SSE, ADR-0002)
+      description: >-
+        Той самий сигнал-канал, що `/api/v1/board/events`, авторизований токеном замість
+        мережевого походження запиту. Закривається сервером синхронно з відкликанням лінка
+        (AC-08, AC-11, sad.md §6 «Відкликання закриває вже відкриті SSE-з'єднання»).
+      operationId: streamPublicBoardEvents
+      security: []
+      responses:
+        "200":
+          description: SSE-потік подій `board.state_changed`
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "404":
+          $ref: "#/components/responses/PublicLinkInvalid"
+
+components:
+  responses:
+    ValidationBadRequest:
+      description: >-
+        Синтаксично невалідний запит — тіло, що не парситься як JSON
+        (`validation.invalid_body`), або `taskId` у шляху, що не є UUID
+        (`validation.invalid_task_id`). Відмінність від 422: тут запит не вдалося
+        навіть прочитати, 422 — прочитали, але домен відхилив значення.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            invalid_body:
+              value:
+                error:
+                  code: "validation.invalid_body"
+                  message: "invalid request body"
+            invalid_task_id:
+              value:
+                error:
+                  code: "validation.invalid_task_id"
+                  message: "invalid task id"
+
+    TaskNotFound:
+      description: Task не знайдено
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error:
+              code: "task.not_found"
+              message: "task not found"
+
+    PublicLinkInvalid:
+      description: Токен недійсний або відкликаний (AC-11)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error:
+              code: "board.link_invalid"
+              message: "this link is no longer available"
+
+  schemas:
+    # Unified error envelope — платформенний httputil.WriteError загортає тіло помилки
+    # у вкладений конверт {"error": {code, message}}. `code` = neutral `module.error_name`.
+    Error:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          additionalProperties: false
+          properties:
+            code:
+              type: string
+              pattern: "^[a-z_]+\\.[a-z_]+$"
+              example: "task.not_found"
+            message: { type: string }
+            details:
+              type: object
+              description: optional structured context (e.g. conflicting id)
+
+    # data-model.md → columns (id, name, position) + nested tasks for board rendering.
+    Column:
+      type: object
+      required: [id, name, position, tasks]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 100 }
+        position: { type: integer, minimum: 0 }
+        tasks:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+
+    # data-model.md → tasks (id, column_id, title, assignee, created_at, updated_at).
+    Task:
+      type: object
+      required: [id, column_id, title, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        column_id: { type: string, format: uuid }
+        title: { type: string, maxLength: 200 }
+        assignee: { type: [string, "null"], maxLength: 200 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    TaskCreate:
+      type: object
+      required: [title]
+      additionalProperties: false
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        assignee: { type: [string, "null"], maxLength: 200 }
+
+    TaskUpdate:
+      type: object
+      # PATCH семантично, але title обов'язковий: сервер валідовує його на кожному
+      # редагуванні (AC-02 застосовується й до edit) — запит без title відхиляється.
+      required: [title]
+      additionalProperties: false
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        assignee: { type: [string, "null"], maxLength: 200 }
+
+    TaskMove:
+      type: object
+      required: [column_id]
+      additionalProperties: false
+      properties:
+        column_id: { type: string, format: uuid }
+
+    # data-model.md → public_links (token exposed; id/board_id are internal).
+    PublicLink:
+      type: object
+      required: [token, created_at]
+      additionalProperties: false
+      properties:
+        token: { type: string, maxLength: 64 }
+        created_at: { type: string, format: date-time }
+
+    # Team-editor view of board state — columns/tasks + current public link (SCR-04 needs
+    # the link's presence/absence without a second round-trip).
+    BoardState:
+      type: object
+      required: [columns, public_link]
+      additionalProperties: false
+      properties:
+        columns:
+          type: array
+          items: { $ref: "#/components/schemas/Column" }
+        public_link:
+          oneOf:
+            - $ref: "#/components/schemas/PublicLink"
+            - type: "null"
+
+    # Public-viewer view — same board shape, no public_link (irrelevant to a viewer already
+    # holding one, and never a second link to discover — AC-09/AC-10).
+    PublicBoardState:
+      type: object
+      required: [columns]
+      additionalProperties: false
+      properties:
+        columns:
+          type: array
+          items: { $ref: "#/components/schemas/Column" }

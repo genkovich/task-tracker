@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/genkovich/task-tracker/api/internal/modules/auth"
+	"github.com/genkovich/task-tracker/api/internal/modules/board"
 	"github.com/genkovich/task-tracker/api/internal/modules/user"
 	"github.com/genkovich/task-tracker/api/internal/platform/authmw"
 	"github.com/genkovich/task-tracker/api/internal/platform/config"
@@ -84,13 +85,22 @@ func main() {
 		server.WithAppEnv(cfg.AppEnv),
 		user.New(db, avatarStorage),
 		authHandler,
+		// board is deliberately unauthenticated (ADR-0001, no accounts): it
+		// registers only public routes, plus its SSE streams via the
+		// streaming group (no per-request timeout).
+		board.New(db),
 	)
 
+	// No WriteTimeout: it is connection-wide and would kill long-lived SSE
+	// streams (ADR-0002) at the mark no matter what the handler does.
+	// Non-streaming routes get their per-route deadline from
+	// middleware.Timeout inside server.New; slow-client reads are bounded by
+	// ReadTimeout/ReadHeaderTimeout below.
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           s.Handler(),
+		ReadTimeout:       15 * time.Second,
 		ReadHeaderTimeout: 10 * time.Second,
-		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 
