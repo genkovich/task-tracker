@@ -47,7 +47,7 @@ export function QuickAddTask({ boardId, onCreated, onCancel }: QuickAddTaskProps
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-background p-3">
+    <div className="flex flex-col gap-3 rounded-2xl border bg-background p-3">
       <Input
         autoFocus
         value={title}

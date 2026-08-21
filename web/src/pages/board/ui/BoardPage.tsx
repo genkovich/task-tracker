@@ -12,9 +12,12 @@ import { Column } from "@/features/board/ui/Column";
 import { EditTaskModal } from "@/features/board/ui/EditTaskModal";
 import { PublicLinkPanel } from "@/features/public-link/ui/PublicLinkPanel";
 import { BoardShell } from "@/widgets/board-shell/ui/BoardShell";
-import { BoardUserBadge } from "@/widgets/board-shell/ui/BoardUserBadge";
 
 export const meta: Route.MetaFunction = () => [{ title: "Дошка — Task Tracker" }];
+
+// ProtectedLayout reads this via useMatches() to drop its default centered
+// max-w-5xl column — the three-column board needs the full frame width.
+export const handle = { fullWidth: true };
 
 /** SCR-01 team-editor board, параметризований дошкою (boards BRD-04): роут
  * /board/:boardId. Компонує колонки/картки/quick-add, модалку редагування і
@@ -61,10 +64,7 @@ export default function BoardPage() {
   return (
     <BoardShell
       actions={
-        <>
-          {boardId && <PublicLinkPanel boardId={boardId} publicLink={board?.public_link ?? null} />}
-          <BoardUserBadge />
-        </>
+        boardId && <PublicLinkPanel boardId={boardId} publicLink={board?.public_link ?? null} />
       }
     >
       {failed ? (
@@ -123,8 +123,8 @@ function BoardColumns({
   });
 
   return (
-    <div className="flex-1 rounded-3xl sm:bg-white/[0.04] sm:p-5">
-      <div className="flex flex-col gap-8 sm:flex-row sm:items-start sm:gap-5 sm:overflow-x-auto sm:pb-1">
+    <div className="flex-1 rounded-3xl sm:bg-muted/50 sm:p-5">
+      <div className="flex flex-col gap-8 sm:flex-row sm:gap-5 sm:overflow-x-auto sm:pb-1">
         {columns.map((column) => (
           <Column
             key={column.id}

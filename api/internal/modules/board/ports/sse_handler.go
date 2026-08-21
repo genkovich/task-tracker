@@ -55,13 +55,23 @@ func NewSSEHandler(registry SSERegistry, stateService PublicStateService, boardS
 	return &SSEHandler{registry: registry, stateService: stateService, boardStateSvc: boardStateSvc}
 }
 
-// RegisterRoutes mounts the SSE routes (boards contract streamBoardEvents,
-// base contract streamPublicBoardEvents), relative to the caller's mount
-// point. The caller must keep these off any per-request timeout middleware —
-// a timeout would cancel the stream's context mid-flight (board.Handler
-// exposes them via RegisterStreamingRoutes for exactly that).
+// RegisterRoutes mounts the team-editor SSE stream (boards contract
+// streamBoardEvents), relative to the caller's mount point. The caller must
+// keep this off any per-request timeout middleware — a timeout would cancel
+// the stream's context mid-flight (board.Handler exposes it via
+// RegisterStreamingRoutes for exactly that). The public-viewer stream is
+// registered separately — see RegisterPublicRoutes.
 func (h *SSEHandler) RegisterRoutes(r chi.Router) {
 	r.Get("/boards/{boardId}/events", h.handleStreamBoardEvents)
+}
+
+// RegisterPublicRoutes mounts the public-viewer SSE stream (base contract
+// streamPublicBoardEvents). Kept separate from RegisterRoutes so board.Handler
+// can mount it on the server's high-traffic rate-limit subtree
+// (server.HighTrafficRouteRegistrar) instead of the standard one — many
+// public-link viewers behind a handful of shared IPs may open it at once.
+// Like the team-editor stream, it must stay off any per-request timeout.
+func (h *SSEHandler) RegisterPublicRoutes(r chi.Router) {
 	r.Get("/public/{token}/events", h.handleStreamPublicBoardEvents)
 }
 

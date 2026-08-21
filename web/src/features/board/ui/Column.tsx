@@ -63,9 +63,9 @@ export function Column({
     <section
       data-column-id={column.id}
       className={cn(
-        "flex w-full flex-col gap-3 rounded-2xl transition-colors sm:w-[340px] sm:shrink-0",
+        "flex h-full w-full flex-col gap-3 rounded-2xl transition-colors sm:w-[340px] sm:shrink-0",
         // ring is a box-shadow — the drop highlight causes no layout shift.
-        isDropTarget && "bg-white/[0.06] ring-1 ring-white/20",
+        isDropTarget && "bg-accent ring-1 ring-ring/30",
       )}
     >
       <header className="flex h-8 items-center gap-2">
@@ -84,7 +84,10 @@ export function Column({
           </Button>
         )}
       </header>
-      <div className="flex flex-col gap-3">
+      {/* flex-1 + min-h-24 give an empty column a real drop-target body
+       * (A2): without it, an empty column had no height for the drop
+       * highlight (isDropTarget ring above) to show against. */}
+      <div className="flex flex-1 flex-col gap-3 min-h-24">
         {canAdd && boardId && adding && (
           <QuickAddTask
             boardId={boardId}

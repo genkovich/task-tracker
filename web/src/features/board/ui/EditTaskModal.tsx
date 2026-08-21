@@ -78,7 +78,7 @@ export function EditTaskModal({
        * Delete зліва, Cancel/Save справа; хрестика в прототипі немає. */}
       <DialogContent
         showCloseButton={false}
-        className="dark rounded-3xl border-white/10 bg-popover p-6 font-sans text-popover-foreground [color-scheme:dark] sm:max-w-md"
+        className="rounded-3xl bg-popover p-6 font-sans text-popover-foreground sm:max-w-md"
       >
         <DialogHeader className="text-left">
           <DialogTitle className="text-xl font-semibold">Редагувати задачу</DialogTitle>

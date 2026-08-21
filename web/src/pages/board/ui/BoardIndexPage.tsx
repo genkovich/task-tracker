@@ -6,6 +6,12 @@ import { boardApi } from "@/features/board/api/boardApi";
 
 export const meta: Route.MetaFunction = () => [{ title: "Дошка — Task Tracker" }];
 
+// ProtectedLayout reads this via useMatches() to drop its default centered
+// max-w-5xl column, matching BoardPage — this route only ever shows a brief
+// loading spinner before redirecting, but it still renders inside the same
+// full-width frame.
+export const handle = { fullWidth: true };
+
 /** Легасі-адреса /board без ідентифікатора (boards BRD-07): відкриває першу
  * дошку, а коли дощок немає (чи список не вдалось отримати) — дашборд. */
 export default function BoardIndexPage() {
@@ -28,8 +34,12 @@ export default function BoardIndexPage() {
   }, [navigate]);
 
   return (
-    <div className="dark flex min-h-screen items-center justify-center bg-background [color-scheme:dark]">
-      <div className="size-6 animate-spin rounded-full border-2 border-muted-foreground/25 border-t-muted-foreground" />
+    <div className="flex flex-1 items-center justify-center">
+      <div
+        className="size-6 animate-spin rounded-full border-2 border-muted-foreground/25 border-t-muted-foreground"
+        role="status"
+        aria-label="Завантаження дошки"
+      />
     </div>
   );
 }

@@ -84,7 +84,7 @@ export function PublicLinkPanel({ boardId, publicLink = null }: PublicLinkPanelP
           variant="secondary"
           size="sm"
           aria-label="Поділитись"
-          className="h-9 rounded-full bg-white/10 hover:bg-white/15 max-sm:size-9 max-sm:bg-white max-sm:p-0 max-sm:text-neutral-900 max-sm:hover:bg-white/90 sm:px-4"
+          className="h-9 rounded-full max-sm:size-9 max-sm:p-0 sm:px-4"
         >
           <Share2 aria-hidden />
           <span className="max-sm:hidden">Поділитись</span>
@@ -93,7 +93,7 @@ export function PublicLinkPanel({ boardId, publicLink = null }: PublicLinkPanelP
       <PopoverContent
         align="end"
         sideOffset={8}
-        className="dark w-[min(22rem,calc(100vw-2rem))] rounded-2xl border-white/10 p-5 font-sans [color-scheme:dark]"
+        className="w-[min(22rem,calc(100vw-2rem))] rounded-2xl p-5 font-sans"
       >
         <PopoverHeader>
           <PopoverTitle className="text-lg font-semibold">Публічне посилання</PopoverTitle>
@@ -116,7 +116,7 @@ export function PublicLinkPanel({ boardId, publicLink = null }: PublicLinkPanelP
           </div>
         ) : (
           <div className="mt-3 flex flex-col gap-3">
-            <div className="flex items-center gap-1 rounded-xl bg-white/[0.06] py-1 pr-1 pl-3">
+            <div className="flex items-center gap-1 rounded-xl bg-muted py-1 pr-1 pl-3">
               <p className="min-w-0 flex-1 truncate text-sm">{publicUrl}</p>
               <Button
                 variant="ghost"

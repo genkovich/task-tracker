@@ -1,15 +1,25 @@
 import { useState } from "react";
-import { Navigate, Outlet } from "react-router";
+import { Navigate, Outlet, useMatches } from "react-router";
 import { useAuth } from "@/app/providers/auth";
 import { AppSidebar } from "@/widgets/app-sidebar/ui/AppSidebar";
 import { TopBar } from "@/widgets/top-bar/ui/TopBar";
 import { BottomTabs } from "@/widgets/bottom-tabs/ui/BottomTabs";
 import { Sheet, SheetContent } from "@/shared/ui/sheet";
 import { TooltipProvider } from "@/shared/ui/tooltip";
+import { cn } from "@/shared/lib/utils";
+
+/** A route module opts out of the default centered `max-w-5xl` column by
+ * exporting `handle = { fullWidth: true }` (board.ts routes) — the board's
+ * three columns need the full frame width (~1100px+). */
+interface RouteHandle {
+  fullWidth?: boolean;
+}
 
 export default function ProtectedLayout() {
   const { user, isLoading } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const matches = useMatches();
+  const fullWidth = matches.some((m) => (m.handle as RouteHandle | undefined)?.fullWidth);
 
   if (isLoading) {
     return (
@@ -38,7 +48,12 @@ export default function ProtectedLayout() {
 
         <div className="flex flex-1 flex-col min-w-0">
           <TopBar onMenuClick={() => setMobileMenuOpen(true)} />
-          <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 md:px-6 md:py-8 pb-20 md:pb-8">
+          <main
+            className={cn(
+              "w-full flex-1 px-4 py-6 md:px-6 md:py-8 pb-20 md:pb-8",
+              !fullWidth && "mx-auto max-w-5xl",
+            )}
+          >
             <Outlet />
           </main>
           <BottomTabs className="md:hidden" />

@@ -207,3 +207,44 @@ func TestPublicRoutes_MutatingMethodsRefused(t *testing.T) {
 			"AC-10: %s %s must be refused by routing, got %d", tc.method, tc.url, resp.StatusCode)
 	}
 }
+
+// TestPublicBoardWiring_HighTrafficRateLimit pins A3: the public-viewer board
+// fetch sits on its own 300/min tier (server.HighTrafficRouteRegistrar), not
+// the general 60/min one — a room of phones behind one venue Wi-Fi opening a
+// public link in the same minute must not 429 past the old 60/min ceiling,
+// only past the new 300/min one.
+func TestPublicBoardWiring_HighTrafficRateLimit(t *testing.T) {
+	ts := setupBoardServer(t)
+
+	linkResp, err := http.Post(ts.URL+"/api/v1/boards/"+wiringSeedBoardID.String()+"/public-link", "application/json", nil) //nolint:noctx // test helper
+	require.NoError(t, err)
+	var link struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.NewDecoder(linkResp.Body).Decode(&link))
+	linkResp.Body.Close()
+	require.Equal(t, http.StatusCreated, linkResp.StatusCode)
+
+	url := ts.URL + "/api/v1/public/" + link.Token + "/board"
+
+	// 1..300: the 61st onward is well past the old 60/min ceiling, still
+	// inside the new 300/min one — none of these 300 requests may be
+	// throttled.
+	for i := 1; i <= 300; i++ {
+		resp, err := http.Get(url) //nolint:noctx // test helper
+		require.NoError(t, err)
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		require.Equalf(t, http.StatusOK, resp.StatusCode,
+			"GET public board #%d must fit the 300/min high-traffic budget, not the old 60/min one", i)
+	}
+
+	// The 301st within the same minute must hit the high-traffic ceiling —
+	// proof this is a real (finite) limit, not an accidental bypass.
+	resp, err := http.Get(url) //nolint:noctx // test helper
+	require.NoError(t, err)
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	require.Equal(t, http.StatusTooManyRequests, resp.StatusCode,
+		"the 301st GET public board within a minute must hit the high-traffic limit")
+}

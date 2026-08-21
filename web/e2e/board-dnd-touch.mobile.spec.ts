@@ -66,3 +66,70 @@ test("dragging a card by touch moves it to another column and persists", async (
   await page.reload();
   await expect(columnByName(page, "In Progress")).toContainText(title, { timeout: 10_000 });
 });
+
+// A2, touch: same rationale as board-dnd.spec.ts — aim below the heading,
+// first into "Done" while it's genuinely empty, then into the empty space
+// left below that card. On the phone viewport the columns stack vertically
+// (col-stack), so "below the heading" still lands inside the column's own
+// stretched body rather than spilling into the next column.
+test("dropping by touch into a genuinely empty column, then into the empty area below a card, both persist", async ({
+  page,
+}) => {
+  await openBoard(page);
+  const doneHeading = columnByName(page, "Done").getByRole("heading");
+
+  async function dragToDoneBody(cardTitle: string) {
+    await createTaskViaQuickAdd(page, cardTitle);
+    const card = cardByTitle(page, cardTitle);
+    const doneColumn = columnByName(page, "Done");
+    await doneHeading.scrollIntoViewIfNeeded();
+
+    const cardBox = await card.boundingBox();
+    const doneBox = await doneColumn.boundingBox();
+    if (!cardBox || !doneBox) throw new Error("could not measure drag source/target");
+
+    const startX = cardBox.x + cardBox.width / 2;
+    const startY = cardBox.y + cardBox.height / 2;
+    const endX = doneBox.x + doneBox.width / 2;
+    const endY = doneBox.y + doneBox.height - 16;
+
+    await card.dispatchEvent("pointerdown", {
+      pointerId: 1,
+      pointerType: "touch",
+      isPrimary: true,
+      clientX: startX,
+      clientY: startY,
+      bubbles: true,
+    });
+    for (let i = 1; i <= 5; i++) {
+      await card.dispatchEvent("pointermove", {
+        pointerId: 1,
+        pointerType: "touch",
+        isPrimary: true,
+        clientX: startX + ((endX - startX) * i) / 5,
+        clientY: startY + ((endY - startY) * i) / 5,
+        bubbles: true,
+      });
+    }
+    await card.dispatchEvent("pointerup", {
+      pointerId: 1,
+      pointerType: "touch",
+      isPrimary: true,
+      clientX: endX,
+      clientY: endY,
+      bubbles: true,
+    });
+
+    await expect(doneColumn).toContainText(cardTitle, { timeout: 10_000 });
+  }
+
+  // 1) "Done" starts empty — the drop lands in its body, not on the heading.
+  await dragToDoneBody(`DnD touch empty column ${Date.now()}`);
+
+  // 2) "Done" now holds a card — the second drop still lands below it, in
+  // the empty space the stretched column leaves behind. No reload here —
+  // persistence-through-the-API is already pinned by the test above; this
+  // one is only about where the drop lands, and skipping it keeps the
+  // suite inside the API's shared 60 req/min budget.
+  await dragToDoneBody(`DnD touch lower area ${Date.now()}`);
+});

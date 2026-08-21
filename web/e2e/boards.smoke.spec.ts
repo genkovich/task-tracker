@@ -38,13 +38,15 @@ test("dashboard → create board → the new board opens → a task lands in To 
   await page.getByRole("button", { name: "Додати", exact: true }).click();
   await expect(cardByTitle(page, taskTitle)).toBeVisible();
 
-  // Logout from the board header avatar: the menu names the user, «Вийти»
-  // clears the tokens and lands on the guest landing. Folded into this
-  // scenario (not its own test) to stay inside the API's shared 60 req/min
-  // budget; the guest bounce-back is already covered by navigation.smoke.
-  await page.getByRole("button", { name: "Відкрити меню користувача" }).click();
-  await expect(page.getByRole("menuitem", { name: /вийти/i })).toBeVisible();
-  await page.getByRole("menuitem", { name: /вийти/i }).click();
+  // Logout from the TopBar avatar (the board no longer has its own header/
+  // avatar — it lives inside the shared app frame now): the menu names the
+  // user, "Log out" clears the tokens and lands on the guest landing. Folded
+  // into this scenario (not its own test) to stay inside the API's shared
+  // 60 req/min budget; the guest bounce-back is already covered by
+  // navigation.smoke.
+  await page.getByRole("button", { name: "Open user menu" }).click();
+  await expect(page.getByRole("menuitem", { name: /log out/i })).toBeVisible();
+  await page.getByRole("menuitem", { name: /log out/i }).click();
   await page.waitForURL((u) => u.pathname === "/");
   await expect(page.getByRole("button", { name: /sign in with google/i })).toBeVisible();
 });

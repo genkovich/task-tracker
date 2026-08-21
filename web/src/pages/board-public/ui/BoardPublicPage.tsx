@@ -59,7 +59,7 @@ export default function BoardPublicPage() {
   if (unavailable) {
     return (
       <main className="dark flex min-h-screen flex-col items-center justify-center gap-2 bg-background px-6 text-center font-sans text-foreground [color-scheme:dark]">
-        <span className="mb-3 flex size-16 items-center justify-center rounded-full bg-white/[0.07]">
+        <span className="mb-3 flex size-16 items-center justify-center rounded-full bg-muted">
           <Link2Off aria-hidden className="size-7 text-muted-foreground" />
         </span>
         <h1 className="text-2xl font-bold tracking-tight">Цей лінк більше недоступний</h1>
@@ -68,28 +68,40 @@ export default function BoardPublicPage() {
     );
   }
 
+  // A guest link has no ProtectedLayout (no sidebar/topbar), so this page
+  // brings its own minimal chrome — same forced-dark treatment as LoginPage
+  // (Design/scr05* renders dark regardless of the visitor's own theme
+  // preference; BoardShell itself is theme-neutral now, it no longer
+  // supplies this).
   return (
-    <BoardShell
-      actions={
-        <span className="flex h-9 items-center gap-2 rounded-full bg-white/10 px-4 text-sm font-medium text-muted-foreground">
-          <Eye aria-hidden className="size-4" />
-          Лише перегляд
-        </span>
-      }
-    >
-      {failed ? (
-        <BoardLoadError onRetry={refetch} />
-      ) : !board ? (
-        <BoardLoading />
-      ) : (
-        <div className="flex-1 rounded-3xl sm:bg-white/[0.04] sm:p-5">
-          <div className="flex flex-col gap-8 sm:flex-row sm:items-start sm:gap-5 sm:overflow-x-auto sm:pb-1">
-            {board.columns.map((column) => (
-              <Column key={column.id} column={column} readOnly />
-            ))}
-          </div>
-        </div>
-      )}
-    </BoardShell>
+    <div className="dark flex min-h-screen flex-col bg-background font-sans text-foreground [color-scheme:dark]">
+      <header className="flex h-16 shrink-0 items-center px-4 sm:px-6">
+        <span className="text-[17px] font-bold tracking-tight">Task Tracker</span>
+      </header>
+      <main className="flex w-full flex-1 flex-col gap-6 px-4 py-6 sm:px-8 sm:py-8">
+        <BoardShell
+          actions={
+            <span className="flex h-9 items-center gap-2 rounded-full bg-muted px-4 text-sm font-medium text-muted-foreground">
+              <Eye aria-hidden className="size-4" />
+              Лише перегляд
+            </span>
+          }
+        >
+          {failed ? (
+            <BoardLoadError onRetry={refetch} />
+          ) : !board ? (
+            <BoardLoading />
+          ) : (
+            <div className="flex-1 rounded-3xl sm:bg-muted/50 sm:p-5">
+              <div className="flex flex-col gap-8 sm:flex-row sm:gap-5 sm:overflow-x-auto sm:pb-1">
+                {board.columns.map((column) => (
+                  <Column key={column.id} column={column} readOnly />
+                ))}
+              </div>
+            </div>
+          )}
+        </BoardShell>
+      </main>
+    </div>
   );
 }
