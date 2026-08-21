@@ -37,6 +37,10 @@ describe("Column — renders the tasks the caller passes in", () => {
       column_id: "col-1",
       title,
       assignee: null,
+      priority: "medium" as const,
+      due_date: null,
+      has_description: false,
+      comment_count: 0,
       created_at: "2026-08-20T00:00:00Z",
       updated_at: "2026-08-20T00:00:00Z",
     });
@@ -65,11 +69,15 @@ describe("Column — renders the tasks the caller passes in", () => {
 });
 
 describe("Column — pointer drag wiring", () => {
-  const taskInColumn = {
+  const taskInColumn: Task = {
     id: "task-1",
     column_id: "col-1",
     title: "Draggable task",
     assignee: null,
+    priority: "medium",
+    due_date: null,
+    has_description: false,
+    comment_count: 0,
     created_at: "2026-08-20T00:00:00Z",
     updated_at: "2026-08-20T00:00:00Z",
   };
@@ -140,6 +148,10 @@ describe("Column — quick-add in the leftmost column", () => {
       column_id: "col-1",
       title: "Write the report",
       assignee: null,
+      priority: "medium" as const,
+      due_date: null,
+      has_description: false,
+      comment_count: 0,
       created_at: "2026-08-20T00:00:00Z",
       updated_at: "2026-08-20T00:00:00Z",
     };
@@ -155,7 +167,12 @@ describe("Column — quick-add in the leftmost column", () => {
           column={{ ...leftmostColumn, tasks }}
           boardId="board-1"
           isLeftmost
-          onTaskCreated={(task) => setTasks((prev) => [...prev, task])}
+          onTaskCreated={(created) =>
+            setTasks((prev) => [
+              ...prev,
+              { ...created, has_description: created.description !== "", comment_count: 0 },
+            ])
+          }
         />
       );
     }
@@ -168,7 +185,10 @@ describe("Column — quick-add in the leftmost column", () => {
     await user.click(screen.getByRole("button", { name: "Додати" }));
 
     await waitFor(() => {
-      expect(mockCreateTask).toHaveBeenCalledWith({ board_id: "board-1", title: "Write the report" });
+      expect(mockCreateTask).toHaveBeenCalledWith({
+        board_id: "board-1",
+        title: "Write the report",
+      });
     });
 
     // Observable outcome the AC names: the task shows up in the column right

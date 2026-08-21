@@ -15,6 +15,7 @@ const mockGetBoard = vi.fn();
 const mockEditTask = vi.fn();
 const mockDeleteTask = vi.fn();
 const mockCreateTask = vi.fn();
+const mockGetTask = vi.fn();
 
 vi.mock("@/features/board/api/boardApi", () => ({
   boardApi: {
@@ -22,6 +23,9 @@ vi.mock("@/features/board/api/boardApi", () => ({
     editTask: (...args: unknown[]) => mockEditTask(...args),
     deleteTask: (...args: unknown[]) => mockDeleteTask(...args),
     createTask: (...args: unknown[]) => mockCreateTask(...args),
+    getTask: (...args: unknown[]) => mockGetTask(...args),
+    addComment: vi.fn(),
+    deleteComment: vi.fn(),
     moveTask: vi.fn(),
   },
 }));
@@ -59,6 +63,10 @@ const board = {
           column_id: "col-1",
           title: "Write the report",
           assignee: "Alex",
+          priority: "high",
+          due_date: "2026-09-01",
+          has_description: true,
+          comment_count: 2,
           created_at: "2026-08-20T00:00:00Z",
           updated_at: "2026-08-20T00:00:00Z",
         },
@@ -74,8 +82,26 @@ const board = {
   public_link: null,
 };
 
+// The details dialog opens by fetching the task (tasks TSK-01) — every test
+// that reaches it needs a detail to render.
+const taskDetail = {
+  task: {
+    id: "task-1",
+    column_id: "col-1",
+    title: "Write the report",
+    assignee: "Alex",
+    description: "Зібрати цифри за тиждень",
+    priority: "high",
+    due_date: "2026-09-01",
+    created_at: "2026-08-20T00:00:00Z",
+    updated_at: "2026-08-20T00:00:00Z",
+  },
+  comments: [],
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
+  mockGetTask.mockResolvedValue(taskDetail);
 });
 
 function renderPage() {
@@ -248,10 +274,11 @@ describe("BoardPage — composes the team-editor board (SCR-01)", () => {
     expect(screen.getAllByRole("button", { name: /додати|add/i })).toHaveLength(1);
   });
 
-  // DoD: "wires T16's edit modal to a card click" — clicking a task card
-  // opens EditTaskModal (SCR-03), an observable outcome (modal contents
-  // appear), not an implementation detail.
-  it("opens the edit modal with the task's data when a task card is clicked", async () => {
+  // DoD: "wires the details modal to a card click" — clicking a task card
+  // opens SCR-03, an observable outcome (modal contents appear), not an
+  // implementation detail. Since the tasks feature the modal loads the full
+  // detail (description, priority, deadline) rather than reading the card.
+  it("opens the details modal with the task's data when a task card is clicked", async () => {
     mockGetBoard.mockResolvedValue(board);
     const user = userEvent.setup();
 
@@ -263,9 +290,12 @@ describe("BoardPage — composes the team-editor board (SCR-01)", () => {
 
     await user.click(screen.getByText("Write the report"));
 
-    expect(await screen.findByRole("heading", { name: /редагувати|edit/i })).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Write the report")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /деталі задачі/i })).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("Write the report")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Alex")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Зібрати цифри за тиждень")).toBeInTheDocument();
+    expect(screen.getByLabelText("Пріоритет")).toHaveValue("high");
+    expect(screen.getByLabelText("Дедлайн")).toHaveValue("2026-09-01");
   });
 
   // DoD: "mounts T17's public-link panel behind a 'поділитись' action" —

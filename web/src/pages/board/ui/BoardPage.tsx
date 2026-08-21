@@ -6,10 +6,10 @@ import { boardApi } from "@/features/board/api/boardApi";
 import { useBoardEvents } from "@/features/board/api/useBoardEvents";
 import { useBoardDnd } from "@/features/board/model/useBoardDnd";
 import { showApiError } from "@/shared/lib/showApiError";
-import type { BoardState, Task } from "@/features/board/api/types";
+import type { BoardState, Task, TaskRecord } from "@/features/board/api/types";
 import { BoardLoadError, BoardLoading } from "@/features/board/ui/BoardLoadState";
 import { Column } from "@/features/board/ui/Column";
-import { EditTaskModal } from "@/features/board/ui/EditTaskModal";
+import { TaskDetailsModal } from "@/features/board/ui/TaskDetailsModal";
 import { PublicLinkPanel } from "@/features/public-link/ui/PublicLinkPanel";
 import { BoardShell } from "@/widgets/board-shell/ui/BoardShell";
 
@@ -81,16 +81,16 @@ export default function BoardPage() {
       )}
 
       {selectedTask && (
-        <EditTaskModal
+        <TaskDetailsModal
           task={selectedTask}
           open
           onOpenChange={(open) => {
             if (!open) setSelectedTask(null);
           }}
-          onSaved={() => {
-            setSelectedTask(null);
-            refetch();
-          }}
+          // A comment lands while the dialog stays open, so onSaved only
+          // refreshes the board behind it — closing is the caller's job in
+          // the save/delete paths, which do it themselves.
+          onSaved={refetch}
           onDeleted={() => {
             setSelectedTask(null);
             refetch();
@@ -105,7 +105,7 @@ interface BoardColumnsProps {
   boardId: string;
   columns: BoardState["columns"];
   onTaskClick: (task: Task) => void;
-  onTaskCreated: (task: Task) => void;
+  onTaskCreated: (task: TaskRecord) => void;
 }
 
 /** Owns the drag-and-drop wiring (T14's `useBoardDnd`) for the currently

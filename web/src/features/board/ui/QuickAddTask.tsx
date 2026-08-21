@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { boardApi } from "@/features/board/api/boardApi";
-import type { Task } from "@/features/board/api/types";
+import type { TaskRecord } from "@/features/board/api/types";
 import { showApiError } from "@/shared/lib/showApiError";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -9,7 +9,7 @@ import { Input } from "@/shared/ui/input";
 export interface QuickAddTaskProps {
   /** Дошка, в найлівішу колонку якої створюється задача (boards BRD-08). */
   boardId: string;
-  onCreated: (task: Task) => void;
+  onCreated: (task: TaskRecord) => void;
   /** Закрити форму (Esc або «Скасувати») — станом open володіє Column (scr02). */
   onCancel?: () => void;
 }
@@ -77,7 +77,13 @@ export function QuickAddTask({ boardId, onCreated, onCancel }: QuickAddTaskProps
       )}
       <div className="flex items-center justify-end gap-2">
         {onCancel && (
-          <Button type="button" variant="ghost" size="sm" className="rounded-full" onClick={onCancel}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="rounded-full"
+            onClick={onCancel}
+          >
             Скасувати
           </Button>
         )}

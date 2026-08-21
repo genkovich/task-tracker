@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
 
-import type { Column as ColumnState, Task } from "@/features/board/api/types";
+import type { Column as ColumnState, Task, TaskRecord } from "@/features/board/api/types";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/utils";
 import { QuickAddTask } from "@/features/board/ui/QuickAddTask";
@@ -27,9 +27,12 @@ export interface ColumnProps {
   onTaskDragCancel?: () => void;
   /** Quick-add created a task — the caller owns the column data and decides
    * how to show it (append locally or refetch the board). */
-  onTaskCreated?: (task: Task) => void;
+  onTaskCreated?: (task: TaskRecord) => void;
   /** SCR-05 public viewer (AC-10): renders view-only — no quick-add and no
-   * draggable cards, regardless of `isLeftmost`/handlers passed in. */
+   * draggable cards, regardless of `isLeftmost`/handlers passed in. A card
+   * click still goes through when the caller wires one: since the tasks
+   * feature, a viewer's click opens read-only details (SCR-07, TSK-12) —
+   * a read, not a write. */
   readOnly?: boolean;
 }
 
@@ -100,7 +103,7 @@ export function Column({
             key={task.id}
             task={task}
             accentClass={accent}
-            onClick={readOnly ? undefined : onTaskClick}
+            onClick={onTaskClick}
             draggable={!readOnly}
             dragging={dragTaskId != null && dragTaskId === task.id}
             onDragStart={readOnly ? undefined : onTaskDragStart}

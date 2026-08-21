@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { Ref } from "react";
-import type { Task } from "@/features/board/api/types";
+import { AlignLeft, CalendarDays, MessageSquare } from "lucide-react";
+import type { Task, TaskPriority } from "@/features/board/api/types";
 import { Card, CardContent } from "@/shared/ui/card";
 import { getNameInitials } from "@/shared/lib/user";
 import { cn } from "@/shared/lib/utils";
+import { formatDueDate, isOverdue } from "@/features/board/lib/dueDate";
 import { DragGhost } from "@/features/board/ui/DragGhost";
 
 export interface TaskCardProps {
@@ -33,29 +35,95 @@ interface TaskCardVisualProps extends React.ComponentProps<"div"> {
   ref?: Ref<HTMLDivElement>;
 }
 
-/** The card's visual content only — accent stripe + title/assignee, no
+// Priority reuses the status tokens the board already owns — no new colour
+// enters the palette, and both themes stay coherent for free (tasks TSK-03).
+const PRIORITY_DOT: Record<TaskPriority, string> = {
+  high: "bg-status-blocked",
+  medium: "bg-status-warning",
+  low: "bg-status-todo",
+};
+
+const PRIORITY_LABEL: Record<TaskPriority, string> = {
+  high: "Високий пріоритет",
+  medium: "Звичайний пріоритет",
+  low: "Низький пріоритет",
+};
+
+/** The card's markers row (tasks TSK-03/TSK-05/TSK-06/TSK-08): priority,
+ * deadline, "has a description", comment count — and the assignee on the
+ * right. Deliberately markers and not content: the column has to stay
+ * scannable in half a second, so no description text and no comment text ever
+ * reaches a card. */
+function TaskCardMarkers({ task }: { task: Task }) {
+  const overdue = task.due_date !== null && isOverdue(task.due_date);
+
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
+        <span
+          data-priority={task.priority}
+          title={PRIORITY_LABEL[task.priority]}
+          className={cn("size-2 shrink-0 rounded-full", PRIORITY_DOT[task.priority])}
+        />
+        {task.due_date && (
+          <span
+            data-slot="due-badge"
+            data-overdue={overdue ? "true" : undefined}
+            title={overdue ? `Протерміновано: ${task.due_date}` : `Дедлайн: ${task.due_date}`}
+            className={cn(
+              "flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
+              overdue ? "bg-destructive/10 text-destructive" : "bg-muted",
+            )}
+          >
+            <CalendarDays aria-hidden className="size-3" />
+            {formatDueDate(task.due_date)}
+          </span>
+        )}
+        {task.has_description && (
+          <span data-slot="has-description" title="Є опис" className="flex shrink-0 items-center">
+            <AlignLeft aria-hidden className="size-3.5" />
+          </span>
+        )}
+        {task.comment_count > 0 && (
+          <span
+            data-slot="comment-count"
+            title={`Коментарів: ${task.comment_count}`}
+            className="flex shrink-0 items-center gap-1 text-[11px] font-medium"
+          >
+            <MessageSquare aria-hidden className="size-3.5" />
+            {task.comment_count}
+          </span>
+        )}
+      </span>
+      {task.assignee && (
+        <span
+          title={task.assignee}
+          className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-foreground"
+        >
+          {getNameInitials(task.assignee)}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** The card's visual content only — accent stripe + title + markers row, no
  * interaction wiring. Shared by the real (interactive) card and its
  * DragGhost clone so the two never drift apart. */
 function TaskCardVisual({ task, accentClass, className, ref, ...props }: TaskCardVisualProps) {
   return (
     <Card
       ref={ref}
-      className={cn("gap-0 overflow-hidden rounded-2xl border bg-background p-0 shadow-none", className)}
+      className={cn(
+        "gap-0 overflow-hidden rounded-2xl border bg-background p-0 shadow-none",
+        className,
+      )}
       {...props}
     >
       <div aria-hidden className={cn("h-1 shrink-0", accentClass ?? "bg-muted")} />
       <CardContent className="flex min-h-[76px] flex-col justify-between gap-3 p-4 pt-3">
         <p className="text-[15px] leading-snug font-medium">{task.title}</p>
-        <span className="flex justify-end">
-          {task.assignee && (
-            <span
-              title={task.assignee}
-              className="flex size-7 items-center justify-center rounded-full bg-muted text-[11px] font-semibold"
-            >
-              {getNameInitials(task.assignee)}
-            </span>
-          )}
-        </span>
+        <TaskCardMarkers task={task} />
       </CardContent>
     </Card>
   );
@@ -95,7 +163,9 @@ export function TaskCard({
   const gestureStart = useRef<{ x: number; y: number } | null>(null);
   // The original card's on-screen rect at the moment the drag started — the
   // ghost is sized to match it and its translate is computed relative to it.
-  const cardRect = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
+  const cardRect = useRef<{ left: number; top: number; width: number; height: number } | null>(
+    null,
+  );
   const draggingRef = useRef(false);
   const cancelledRef = useRef(false);
   const suppressClickRef = useRef(false);
@@ -143,7 +213,12 @@ export function TaskCard({
       const el = cardRef.current;
       if (el) {
         const rect = el.getBoundingClientRect();
-        cardRect.current = { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+        cardRect.current = {
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+        };
         // pointer-events:none keeps the original out of elementFromPoint
         // (the ghost is already pointer-events:none), so useBoardDnd
         // resolves the column underneath the cursor; the captured pointer
