@@ -1,5 +1,9 @@
+import { useState } from "react";
+import { Plus } from "lucide-react";
+
 import type { Column as ColumnState, Task } from "@/features/board/api/types";
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Button } from "@/shared/ui/button";
+import { cn } from "@/shared/lib/utils";
 import { QuickAddTask } from "@/features/board/ui/QuickAddTask";
 import { TaskCard } from "@/features/board/ui/TaskCard";
 
@@ -18,8 +22,12 @@ export interface ColumnProps {
   readOnly?: boolean;
 }
 
-/** One board column: name + its ordered task list (SCR-01), plus the
- * leftmost column's inline quick-add form (SCR-02). */
+// Статусні кольори колонок за позицією (scr01): нейтральна → синя → зелена.
+const COLUMN_ACCENTS = ["bg-status-todo", "bg-status-in-progress", "bg-status-done"];
+
+/** One board column: dot + name + count header (SCR-01), the ordered task
+ * list, and — in the leftmost column — the «+» that opens the inline
+ * quick-add form (SCR-02). */
 export function Column({
   column,
   isLeftmost,
@@ -29,9 +37,13 @@ export function Column({
   onTaskCreated,
   readOnly,
 }: ColumnProps) {
+  const [adding, setAdding] = useState(false);
+  const accent = COLUMN_ACCENTS[column.position % COLUMN_ACCENTS.length];
+  const canAdd = isLeftmost && !readOnly;
+
   return (
-    <Card
-      className="w-72 shrink-0 gap-3 py-4"
+    <section
+      className="flex w-full flex-col gap-3 sm:w-[340px] sm:shrink-0"
       onDragOver={!readOnly && onDropTask ? (e) => e.preventDefault() : undefined}
       onDrop={
         !readOnly && onDropTask
@@ -43,23 +55,40 @@ export function Column({
           : undefined
       }
     >
-      <CardHeader className="px-4">
-        <CardTitle>{column.name}</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-2 px-4">
+      <header className="flex h-8 items-center gap-2">
+        <span aria-hidden className={cn("size-2 rounded-full", accent)} />
+        <h2 className="text-[15px] font-semibold">{column.name}</h2>
+        <span className="text-sm text-muted-foreground">{column.tasks.length}</span>
+        {canAdd && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="ml-auto rounded-full text-muted-foreground hover:text-foreground"
+            aria-label="Додати задачу"
+            onClick={() => setAdding((open) => !open)}
+          >
+            <Plus />
+          </Button>
+        )}
+      </header>
+      <div className="flex flex-col gap-3">
+        {canAdd && adding && (
+          <QuickAddTask
+            onCreated={(task) => onTaskCreated?.(task)}
+            onCancel={() => setAdding(false)}
+          />
+        )}
         {column.tasks.map((task) => (
           <TaskCard
             key={task.id}
             task={task}
+            accentClass={accent}
             onClick={readOnly ? undefined : onTaskClick}
             onDragStart={readOnly ? undefined : onTaskDragStart}
             draggable={!readOnly}
           />
         ))}
-        {isLeftmost && !readOnly && (
-          <QuickAddTask onCreated={(task) => onTaskCreated?.(task)} />
-        )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }

@@ -10,6 +10,8 @@ import { BoardLoadError, BoardLoading } from "@/features/board/ui/BoardLoadState
 import { Column } from "@/features/board/ui/Column";
 import { EditTaskModal } from "@/features/board/ui/EditTaskModal";
 import { PublicLinkPanel } from "@/features/public-link/ui/PublicLinkPanel";
+import { BoardShell } from "@/widgets/board-shell/ui/BoardShell";
+import { BoardUserBadge } from "@/widgets/board-shell/ui/BoardUserBadge";
 
 export const meta: Route.MetaFunction = () => [{ title: "Дошка — Task Tracker" }];
 
@@ -48,34 +50,26 @@ export default function BoardPage() {
 
   useBoardEvents(refetch);
 
-  if (failed) {
-    return (
-      <main className="flex h-screen flex-col p-4">
-        <BoardLoadError onRetry={refetch} />
-      </main>
-    );
-  }
-
-  if (!board) {
-    return (
-      <main className="flex h-screen flex-col p-4">
-        <BoardLoading />
-      </main>
-    );
-  }
-
   return (
-    <main className="flex h-screen flex-col gap-4 p-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Дошка команди</h1>
-        <PublicLinkPanel publicLink={board.public_link} />
-      </div>
-
-      <BoardColumns
-        columns={board.columns}
-        onTaskClick={(task) => setSelectedTask(task)}
-        onTaskCreated={refetch}
-      />
+    <BoardShell
+      actions={
+        <>
+          <PublicLinkPanel publicLink={board?.public_link ?? null} />
+          <BoardUserBadge />
+        </>
+      }
+    >
+      {failed ? (
+        <BoardLoadError onRetry={refetch} />
+      ) : !board ? (
+        <BoardLoading />
+      ) : (
+        <BoardColumns
+          columns={board.columns}
+          onTaskClick={(task) => setSelectedTask(task)}
+          onTaskCreated={refetch}
+        />
+      )}
 
       {selectedTask && (
         <EditTaskModal
@@ -94,7 +88,7 @@ export default function BoardPage() {
           }}
         />
       )}
-    </main>
+    </BoardShell>
   );
 }
 
@@ -112,17 +106,19 @@ function BoardColumns({ columns: initialColumns, onTaskClick, onTaskCreated }: B
   const { columns, handleDrop } = useBoardDnd(initialColumns, { moveTask: boardApi.moveTask });
 
   return (
-    <div className="flex flex-1 gap-4 overflow-x-auto">
-      {columns.map((column) => (
-        <Column
-          key={column.id}
-          column={column}
-          isLeftmost={column.position === 0}
-          onTaskClick={onTaskClick}
-          onDropTask={(taskId) => handleDrop(taskId, column.id)}
-          onTaskCreated={onTaskCreated}
-        />
-      ))}
+    <div className="flex-1 rounded-3xl sm:bg-white/[0.04] sm:p-5">
+      <div className="flex flex-col gap-8 sm:flex-row sm:items-start sm:gap-5 sm:overflow-x-auto sm:pb-1">
+        {columns.map((column) => (
+          <Column
+            key={column.id}
+            column={column}
+            isLeftmost={column.position === 0}
+            onTaskClick={onTaskClick}
+            onDropTask={(taskId) => handleDrop(taskId, column.id)}
+            onTaskCreated={onTaskCreated}
+          />
+        ))}
+      </div>
     </div>
   );
 }

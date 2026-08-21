@@ -1,5 +1,6 @@
 import type { Task } from "@/features/board/api/types";
 import { Card, CardContent } from "@/shared/ui/card";
+import { getNameInitials } from "@/shared/lib/user";
 import { cn } from "@/shared/lib/utils";
 
 export interface TaskCardProps {
@@ -7,6 +8,8 @@ export interface TaskCardProps {
   onClick?: (task: Task) => void;
   draggable?: boolean;
   onDragStart?: (task: Task) => void;
+  /** Клас кольорової смужки зверху картки — статусний колір колонки (scr01). */
+  accentClass?: string;
   className?: string;
 }
 
@@ -17,6 +20,7 @@ export function TaskCard({
   onClick,
   draggable = true,
   onDragStart,
+  accentClass,
   className,
 }: TaskCardProps) {
   // Read-only rendering (SCR-05, AC-10): without a click handler the card is
@@ -26,7 +30,11 @@ export function TaskCard({
 
   return (
     <Card
-      className={cn(clickable && "cursor-pointer", "gap-2 py-3", className)}
+      className={cn(
+        "gap-0 overflow-hidden rounded-2xl border-white/10 bg-background p-0 shadow-none transition-colors",
+        clickable && "cursor-pointer hover:bg-white/[0.04]",
+        className,
+      )}
       role={clickable ? "button" : undefined}
       tabIndex={clickable ? 0 : undefined}
       draggable={draggable}
@@ -40,9 +48,19 @@ export function TaskCard({
           : undefined
       }
     >
-      <CardContent className="flex flex-col gap-1 px-3">
-        <p className="text-sm font-medium">{task.title}</p>
-        {task.assignee && <p className="text-muted-foreground text-xs">{task.assignee}</p>}
+      <div aria-hidden className={cn("h-1 shrink-0", accentClass ?? "bg-white/15")} />
+      <CardContent className="flex min-h-[76px] flex-col justify-between gap-3 p-4 pt-3">
+        <p className="text-[15px] leading-snug font-medium">{task.title}</p>
+        <span className="flex justify-end">
+          {task.assignee && (
+            <span
+              title={task.assignee}
+              className="flex size-7 items-center justify-center rounded-full bg-white/10 text-[11px] font-semibold"
+            >
+              {getNameInitials(task.assignee)}
+            </span>
+          )}
+        </span>
       </CardContent>
     </Card>
   );

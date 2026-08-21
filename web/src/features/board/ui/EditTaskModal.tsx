@@ -74,21 +74,29 @@ export function EditTaskModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Редагувати task</DialogTitle>
-          <DialogDescription>
-            Змініть назву або виконавця й збережіть, або видаліть task.
+      {/* SCR-03 (Design/scr03-edit-task-*): темна модалка з великим радіусом,
+       * Delete зліва, Cancel/Save справа; хрестика в прототипі немає. */}
+      <DialogContent
+        showCloseButton={false}
+        className="dark rounded-3xl border-white/10 bg-popover p-6 font-sans text-popover-foreground [color-scheme:dark] sm:max-w-md"
+      >
+        <DialogHeader className="text-left">
+          <DialogTitle className="text-xl font-semibold">Редагувати задачу</DialogTitle>
+          <DialogDescription className="sr-only">
+            Змініть назву або виконавця й збережіть, або видаліть задачу.
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="edit-task-title">Назва</Label>
+            <Label htmlFor="edit-task-title" className="text-sm">
+              Назва
+            </Label>
             <Input
               id="edit-task-title"
               value={title}
               aria-invalid={error ? true : undefined}
+              className="h-10 rounded-xl"
               onChange={(e) => {
                 setTitle(e.target.value);
                 if (error) setError(null);
@@ -102,27 +110,47 @@ export function EditTaskModal({
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="edit-task-assignee">Виконавець</Label>
+            <Label htmlFor="edit-task-assignee" className="text-sm">
+              Виконавець
+            </Label>
             <Input
               id="edit-task-assignee"
               value={assignee}
+              className="h-10 rounded-xl"
               onChange={(e) => setAssignee(e.target.value)}
             />
           </div>
         </div>
 
-        <DialogFooter className="sm:justify-between">
+        <DialogFooter className="mt-2 flex-row items-center sm:justify-between">
           <Button
             type="button"
             variant="destructive"
+            className="rounded-full px-4 dark:bg-destructive dark:hover:bg-destructive/90"
             onClick={handleDelete}
             disabled={deleting || saving}
           >
             Видалити
           </Button>
-          <Button type="button" onClick={handleSave} disabled={saving || deleting}>
-            Зберегти
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              className="rounded-full px-4"
+              onClick={() => onOpenChange(false)}
+              disabled={saving || deleting}
+            >
+              Скасувати
+            </Button>
+            <Button
+              type="button"
+              className="rounded-full px-4"
+              onClick={handleSave}
+              disabled={saving || deleting}
+            >
+              Зберегти
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
