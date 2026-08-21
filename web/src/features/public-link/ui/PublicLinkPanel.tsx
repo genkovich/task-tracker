@@ -9,11 +9,17 @@ import {
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
 import { ApiClientError } from "@/shared/api/client";
-import { publicLinkApi } from "../api/publicLinkApi";
+import { publicLinkApi, type PublicLink } from "../api/publicLinkApi";
 import { noLink, activeLink, type PublicLinkState } from "../model/publicLinkState";
 
-export function PublicLinkPanel() {
-  const [state, setState] = useState<PublicLinkState>(noLink);
+export interface PublicLinkPanelProps {
+  /** The board's current link from `BoardState.public_link` (AC-08) — seeds
+   * the panel so an already-issued link survives a page reload. */
+  publicLink?: PublicLink | null;
+}
+
+export function PublicLinkPanel({ publicLink = null }: PublicLinkPanelProps) {
+  const [state, setState] = useState<PublicLinkState>(publicLink ? activeLink(publicLink) : noLink);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 

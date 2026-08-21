@@ -39,7 +39,7 @@ export default function BoardPage() {
     <main className="flex h-screen flex-col gap-4 p-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Дошка команди</h1>
-        <PublicLinkPanel />
+        <PublicLinkPanel publicLink={board.public_link} />
       </div>
 
       <BoardColumns

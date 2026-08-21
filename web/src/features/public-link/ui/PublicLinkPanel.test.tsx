@@ -110,6 +110,24 @@ describe("PublicLinkPanel", () => {
     expect(new URL(urlText).pathname).toBe("/b/opaque-token-abc123");
   });
 
+  // Review 2026-08-21 root F (AC-08): the panel ignored the board's existing
+  // `public_link`, so after F5 the active link was unreachable — «Отримати»
+  // returned a 409 dead end. Pin: mounting with an existing link shows the
+  // URL and the revoke action right away, no issue round-trip.
+  it("shows the existing link and the revoke action when mounted with the board's public_link", async () => {
+    const user = userEvent.setup();
+
+    render(<PublicLinkPanel publicLink={issuedLink} />);
+    await openPanel(user);
+
+    expect(await screen.findByText(/opaque-token-abc123/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /відкликати|revoke/i })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /отримати лінк|get link/i }),
+    ).not.toBeInTheDocument();
+    expect(mockIssue).not.toHaveBeenCalled();
+  });
+
   // AC-08 (US-06) happy path — spec.md §5: "team member відкликає цей лінк" ->
   // "система припиняє показувати стан board за цим лінком". DoD: "revoking from
   // the active-link state clears the panel back to no-link".
