@@ -367,12 +367,18 @@ describe("TaskDetailsModal — viewer (SCR-07)", () => {
   });
 
   it("contains no field, no comment form and no delete", async () => {
-    const { container } = renderEditor({ publicToken: "tok-123" });
+    renderEditor({ publicToken: "tok-123" });
     await screen.findByText("Зібрати цифри за тиждень");
 
-    expect(container.querySelector("input")).toBeNull();
-    expect(container.querySelector("textarea")).toBeNull();
-    expect(container.querySelector("select")).toBeNull();
+    // Queried through the dialog, not the render container: DialogContent is
+    // portalled to document.body, so `container.querySelector("input")` would
+    // be null no matter what the modal renders — an assertion that can never
+    // fail proves nothing.
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(dialog.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(dialog.queryByLabelText("Опис")).not.toBeInTheDocument();
+    expect(dialog.queryByLabelText("Дедлайн")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Зберегти" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Видалити" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Додати коментар" })).not.toBeInTheDocument();

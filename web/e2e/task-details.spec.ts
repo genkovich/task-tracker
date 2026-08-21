@@ -40,7 +40,15 @@ function futureDueDate(): { value: string; label: string } {
     "лист",
     "груд",
   ];
-  return { value, label: `${due.getDate()} ${monthsShort[due.getMonth()]}` };
+  // Same rule the card uses (features/board/lib/dueDate): the year is
+  // appended only when the deadline is not in the current one. Without this,
+  // the spec starts failing around 2 December, when now+30 crosses into the
+  // next year and the card shows a year the expectation does not.
+  const label = `${due.getDate()} ${monthsShort[due.getMonth()]}`;
+  return {
+    value,
+    label: due.getFullYear() === new Date().getFullYear() ? label : `${label} ${due.getFullYear()}`,
+  };
 }
 
 test("task details: description + priority + deadline + comment → card markers → public read-only view", async ({
