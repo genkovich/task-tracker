@@ -28,6 +28,11 @@
 	}
 	# battery:web
 	handle {
+		# Публічна дошка /b/{token} — capability URL: API вже шле
+		# X-Robots-Tag на /api/v1/public/*, але краулер, що отримав лінк,
+		# ходить саме на SPA-шлях /b/* — його теж не можна індексувати.
+		@publicBoard path /b/*
+		header @publicBoard X-Robots-Tag "noindex, nofollow"
 		reverse_proxy web:80
 	}
 	# /battery:web
