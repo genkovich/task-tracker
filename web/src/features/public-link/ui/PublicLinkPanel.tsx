@@ -82,7 +82,7 @@ export function PublicLinkPanel({ publicLink = null }: PublicLinkPanelProps) {
           variant="secondary"
           size="sm"
           aria-label="Поділитись"
-          className="rounded-full bg-white/10 hover:bg-white/15 max-sm:size-9 max-sm:p-0 sm:px-4"
+          className="h-9 rounded-full bg-white/10 hover:bg-white/15 max-sm:size-9 max-sm:bg-white max-sm:p-0 max-sm:text-neutral-900 max-sm:hover:bg-white/90 sm:px-4"
         >
           <Share2 aria-hidden />
           <span className="max-sm:hidden">Поділитись</span>
