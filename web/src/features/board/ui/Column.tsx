@@ -1,5 +1,3 @@
-import { useState } from "react";
-
 import type { Column as ColumnState, Task } from "@/features/board/api/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { QuickAddTask } from "@/features/board/ui/QuickAddTask";
@@ -12,6 +10,9 @@ export interface ColumnProps {
   onTaskClick?: (task: Task) => void;
   onTaskDragStart?: (task: Task) => void;
   onDropTask?: (taskId: string) => void;
+  /** Quick-add created a task — the caller owns the column data and decides
+   * how to show it (append locally or refetch the board). */
+  onTaskCreated?: (task: Task) => void;
   /** SCR-05 public viewer (AC-10): renders view-only — no quick-add and no
    * draggable cards, regardless of `isLeftmost`/handlers passed in. */
   readOnly?: boolean;
@@ -25,10 +26,9 @@ export function Column({
   onTaskClick,
   onTaskDragStart,
   onDropTask,
+  onTaskCreated,
   readOnly,
 }: ColumnProps) {
-  const [tasks, setTasks] = useState<Task[]>(column.tasks);
-
   return (
     <Card
       className="w-72 shrink-0 gap-3 py-4"
@@ -47,7 +47,7 @@ export function Column({
         <CardTitle>{column.name}</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-2 px-4">
-        {tasks.map((task) => (
+        {column.tasks.map((task) => (
           <TaskCard
             key={task.id}
             task={task}
@@ -57,7 +57,7 @@ export function Column({
           />
         ))}
         {isLeftmost && !readOnly && (
-          <QuickAddTask onCreated={(task) => setTasks((prev) => [...prev, task])} />
+          <QuickAddTask onCreated={(task) => onTaskCreated?.(task)} />
         )}
       </CardContent>
     </Card>

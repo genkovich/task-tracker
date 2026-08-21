@@ -46,6 +46,7 @@ export default function BoardPage() {
         key={version}
         columns={board.columns}
         onTaskClick={(task) => setSelectedTask(task)}
+        onTaskCreated={refetch}
       />
 
       {selectedTask && (
@@ -72,12 +73,15 @@ export default function BoardPage() {
 interface BoardColumnsProps {
   columns: BoardState["columns"];
   onTaskClick: (task: Task) => void;
+  onTaskCreated: (task: Task) => void;
 }
 
 /** Owns the drag-and-drop wiring (T14's `useBoardDnd`) for the currently
  * loaded columns; remounted (via the parent's `key`) whenever the board is
- * refetched so it always starts from the freshest server state. */
-function BoardColumns({ columns: initialColumns, onTaskClick }: BoardColumnsProps) {
+ * refetched, because `useBoardDnd` seeds its optimistic state from
+ * `initialColumns` once — the remount is what syncs it to fresh server
+ * state. */
+function BoardColumns({ columns: initialColumns, onTaskClick, onTaskCreated }: BoardColumnsProps) {
   const { columns, handleDrop } = useBoardDnd(initialColumns, { moveTask: boardApi.moveTask });
 
   return (
@@ -89,6 +93,7 @@ function BoardColumns({ columns: initialColumns, onTaskClick }: BoardColumnsProp
           isLeftmost={column.position === 0}
           onTaskClick={onTaskClick}
           onDropTask={(taskId) => handleDrop(taskId, column.id)}
+          onTaskCreated={onTaskCreated}
         />
       ))}
     </div>
