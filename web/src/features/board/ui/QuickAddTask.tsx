@@ -5,10 +5,11 @@ import type { Task } from "@/features/board/api/types";
 import { showApiError } from "@/shared/lib/showApiError";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
-import { Label } from "@/shared/ui/label";
 
 export interface QuickAddTaskProps {
   onCreated: (task: Task) => void;
+  /** Закрити форму (Esc або «Скасувати») — станом open володіє Column (scr02). */
+  onCancel?: () => void;
 }
 
 /** Inline quick-add form for the leftmost column (SCR-02).
@@ -18,7 +19,7 @@ export interface QuickAddTaskProps {
  * AC-02: an empty title shows an inline required-name error and never calls
  * the API.
  */
-export function QuickAddTask({ onCreated }: QuickAddTaskProps) {
+export function QuickAddTask({ onCreated, onCancel }: QuickAddTaskProps) {
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -44,13 +45,14 @@ export function QuickAddTask({ onCreated }: QuickAddTaskProps) {
   };
 
   return (
-    <div className="flex flex-col gap-2">
-      <Label htmlFor="quick-add-task-title">Назва</Label>
+    <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-background p-3">
       <Input
-        id="quick-add-task-title"
+        autoFocus
         value={title}
-        placeholder="Назва task"
+        placeholder="Назва задачі"
+        aria-label="Назва задачі"
         aria-invalid={error ? true : undefined}
+        className="h-10 rounded-xl"
         onChange={(e) => {
           setTitle(e.target.value);
           if (error) setError(null);
@@ -60,6 +62,10 @@ export function QuickAddTask({ onCreated }: QuickAddTaskProps) {
             e.preventDefault();
             void handleSubmit();
           }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            onCancel?.();
+          }
         }}
       />
       {error && (
@@ -67,9 +73,22 @@ export function QuickAddTask({ onCreated }: QuickAddTaskProps) {
           {error}
         </p>
       )}
-      <Button type="button" size="sm" onClick={() => void handleSubmit()} disabled={submitting}>
-        Додати task
-      </Button>
+      <div className="flex items-center justify-end gap-2">
+        {onCancel && (
+          <Button type="button" variant="ghost" size="sm" className="rounded-full" onClick={onCancel}>
+            Скасувати
+          </Button>
+        )}
+        <Button
+          type="button"
+          size="sm"
+          className="rounded-full px-4"
+          onClick={() => void handleSubmit()}
+          disabled={submitting}
+        >
+          Додати
+        </Button>
+      </div>
     </div>
   );
 }

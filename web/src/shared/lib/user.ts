@@ -16,3 +16,13 @@ export function getInitials(user: NamedUser): string {
   if (user.first_name) return user.first_name[0]!.toUpperCase();
   return user.email[0]!.toUpperCase();
 }
+
+/** Ініціали з довільного імені-рядка (виконавець task — вільний текст,
+ * не NamedUser): «Sam R.» → «SR», одне слово «Alex» → «AL». */
+export function getNameInitials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length >= 2) {
+    return `${words[0]![0]!}${words[1]![0]!}`.toUpperCase();
+  }
+  return name.trim().slice(0, 2).toUpperCase();
+}

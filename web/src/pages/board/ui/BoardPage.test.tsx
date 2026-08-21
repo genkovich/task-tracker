@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
+import { AuthProvider } from "@/app/providers/auth";
 import { useBoardEvents } from "@/features/board/api/useBoardEvents";
 import BoardPage from "./BoardPage";
 
@@ -75,9 +76,13 @@ beforeEach(() => {
 });
 
 function renderPage() {
+  // Шапка борда (BoardUserBadge) читає useAuth — сторінці потрібен провайдер,
+  // як і в реальному дереві під AuthGate.
   return render(
     <MemoryRouter>
-      <BoardPage />
+      <AuthProvider>
+        <BoardPage />
+      </AuthProvider>
     </MemoryRouter>,
   );
 }
@@ -195,7 +200,9 @@ describe("BoardPage — refetch must not remount the board subtree (re2 #3)", ()
       expect(screen.getByText("To do")).toBeInTheDocument();
     });
 
-    await user.type(screen.getByPlaceholderText("Назва task"), "draft in progress");
+    // Quick-add ховається за «+» у хедері колонки (scr02) — відкрити перед набором.
+    await user.click(screen.getByRole("button", { name: "Додати задачу" }));
+    await user.type(screen.getByPlaceholderText("Назва задачі"), "draft in progress");
 
     const onBoardEvent = vi.mocked(useBoardEvents).mock.calls[0][0] as () => void;
     await act(async () => {
@@ -205,7 +212,7 @@ describe("BoardPage — refetch must not remount the board subtree (re2 #3)", ()
     // The fresh server state rendered...
     expect(await screen.findByText("From another tab")).toBeInTheDocument();
     // ...and the in-progress quick-add draft survived — no remount.
-    expect(screen.getByPlaceholderText("Назва task")).toHaveValue("draft in progress");
+    expect(screen.getByPlaceholderText("Назва задачі")).toHaveValue("draft in progress");
   });
 });
 

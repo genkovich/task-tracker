@@ -98,8 +98,10 @@ describe("Column — quick-add in the leftmost column", () => {
 
     render(<Caller />);
 
+    // Quick-add ховається за «+» у хедері колонки (scr02) — відкрити спершу.
+    await user.click(screen.getByRole("button", { name: "Додати задачу" }));
     await user.type(screen.getByLabelText(/назва|title/i), "Write the report");
-    await user.click(screen.getByRole("button", { name: /додати|add/i }));
+    await user.click(screen.getByRole("button", { name: "Додати" }));
 
     await waitFor(() => {
       expect(mockCreateTask).toHaveBeenCalledWith({ title: "Write the report" });
@@ -122,7 +124,8 @@ describe("Column — quick-add in the leftmost column", () => {
 
     render(<Column column={leftmostColumn} isLeftmost />);
 
-    await user.click(screen.getByRole("button", { name: /додати|add/i }));
+    await user.click(screen.getByRole("button", { name: "Додати задачу" }));
+    await user.click(screen.getByRole("button", { name: "Додати" }));
 
     await waitFor(() => {
       expect(screen.getByText(/назва обов'?язкова|title is required/i)).toBeInTheDocument();
