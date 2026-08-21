@@ -5,8 +5,8 @@ import { Skeleton } from "@/shared/ui/skeleton";
 import { EmptyState } from "@/shared/ui/EmptyState";
 import { Button } from "@/shared/ui/button";
 import { COLUMNS, type Card, type ColumnStatus } from "@/entities/card/model/types";
+import { BoardColumn } from "@/entities/card/ui/BoardColumn";
 import { boardApi, subscribeToBoardEvents } from "../api/boardApi";
-import { BoardColumn } from "./BoardColumn";
 
 type LoadState = "loading" | "loaded" | "error";
 
