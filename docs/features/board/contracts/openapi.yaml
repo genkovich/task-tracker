@@ -83,8 +83,9 @@ paths:
           $ref: "#/components/responses/ValidationBadRequest"
         "422":
           description: >-
-            Порожня назва task (AC-02, `task.title_required`) або назва понад 200
-            символів (`task.title_too_long`)
+            Порожня назва task (AC-02, `task.title_required`), назва понад 200
+            символів (`task.title_too_long`) або виконавець понад 200 символів
+            (`task.assignee_too_long`)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -134,7 +135,9 @@ paths:
         "422":
           description: >-
             Порожня назва task (AC-02, застосовується й до редагування,
-            `task.title_required`) або назва понад 200 символів (`task.title_too_long`)
+            `task.title_required`), назва понад 200 символів
+            (`task.title_too_long`) або виконавець понад 200 символів
+            (`task.assignee_too_long`)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

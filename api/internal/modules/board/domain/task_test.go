@@ -104,6 +104,58 @@ func TestNewTask_TitleLength_Boundary(t *testing.T) {
 	}
 }
 
+// Review 2026-08-21 re2, #1: an assignee over MaxAssigneeLength characters
+// must be rejected in the domain, symmetric with the title — without the
+// check it surfaced as an opaque DB error (VARCHAR(200)) → 500 instead of
+// 422. The boundary (exactly 200 runes, non-ASCII included) stays valid.
+func TestNewTask_AssigneeLength_Boundary(t *testing.T) {
+	columnID := uuid.Must(uuid.NewV7())
+
+	atLimit := strings.Repeat("ї", domain.MaxAssigneeLength)
+	if _, err := domain.NewTask(columnID, "ok", &atLimit); err != nil {
+		t.Fatalf("NewTask(assignee of exactly %d runes) error = %v, want nil", domain.MaxAssigneeLength, err)
+	}
+
+	overLimit := strings.Repeat("ї", domain.MaxAssigneeLength+1)
+	got, err := domain.NewTask(columnID, "ok", &overLimit)
+	if !errors.Is(err, domain.ErrAssigneeTooLong) {
+		t.Fatalf("NewTask(assignee of %d runes) error = %v, want errors.Is(err, domain.ErrAssigneeTooLong)", domain.MaxAssigneeLength+1, err)
+	}
+	if got != nil {
+		t.Fatalf("NewTask(oversized assignee) task = %+v, want nil on error", got)
+	}
+}
+
+// SetAssignee enforces the same length invariant on edit (the contract's
+// maxLength: 200 applies to TaskUpdate too); nil clears the assignee.
+func TestTask_SetAssignee_Boundary(t *testing.T) {
+	columnID := uuid.Must(uuid.NewV7())
+	task, err := domain.NewTask(columnID, "ok", nil)
+	if err != nil {
+		t.Fatalf("NewTask error = %v", err)
+	}
+
+	atLimit := strings.Repeat("ї", domain.MaxAssigneeLength)
+	if err := task.SetAssignee(&atLimit); err != nil {
+		t.Fatalf("SetAssignee(exactly %d runes) error = %v, want nil", domain.MaxAssigneeLength, err)
+	}
+
+	overLimit := strings.Repeat("ї", domain.MaxAssigneeLength+1)
+	if err := task.SetAssignee(&overLimit); !errors.Is(err, domain.ErrAssigneeTooLong) {
+		t.Fatalf("SetAssignee(oversized) error = %v, want errors.Is(err, domain.ErrAssigneeTooLong)", err)
+	}
+	if task.Assignee == nil || *task.Assignee != atLimit {
+		t.Fatal("SetAssignee(oversized) must leave the assignee unchanged")
+	}
+
+	if err := task.SetAssignee(nil); err != nil {
+		t.Fatalf("SetAssignee(nil) error = %v, want nil (clearing is always valid)", err)
+	}
+	if task.Assignee != nil {
+		t.Fatal("SetAssignee(nil) must clear the assignee")
+	}
+}
+
 // SetTitle enforces the same length invariant as NewTask.
 func TestTask_SetTitle_TooLong_ReturnsErrTitleTooLong(t *testing.T) {
 	columnID := uuid.Must(uuid.NewV7())

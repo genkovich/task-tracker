@@ -19,11 +19,21 @@ import (
 // opaque DB error → 500 instead of 422.
 const MaxTitleLength = 200
 
+// MaxAssigneeLength bounds a task assignee in characters — mirrors the
+// contract's maxLength: 200 (contracts/openapi.yaml Task.assignee) and the
+// tasks.assignee column width, symmetric with MaxTitleLength; without the
+// domain check an oversized assignee surfaced as an opaque DB error → 500
+// instead of 422.
+const MaxAssigneeLength = 200
+
 var (
 	// ErrTitleRequired — a task title must be non-empty (AC-02).
 	ErrTitleRequired = errors.New("board.task_title_required")
 	// ErrTitleTooLong — a task title must be at most MaxTitleLength characters.
 	ErrTitleTooLong = errors.New("board.task_title_too_long")
+	// ErrAssigneeTooLong — a task assignee must be at most MaxAssigneeLength
+	// characters.
+	ErrAssigneeTooLong = errors.New("board.task_assignee_too_long")
 	// ErrTaskNotFound — no task exists for the given id.
 	ErrTaskNotFound = errors.New("board.task_not_found")
 	// ErrColumnNotFound — no column exists for the given id.
@@ -69,6 +79,9 @@ func NewTask(columnID uuid.UUID, title string, assignee *string) (*Task, error) 
 	if err := validateTitle(title); err != nil {
 		return nil, err
 	}
+	if err := validateAssignee(assignee); err != nil {
+		return nil, err
+	}
 
 	return &Task{
 		ID:       uuid.Must(uuid.NewV7()),
@@ -89,12 +102,31 @@ func (t *Task) SetTitle(title string) error {
 	return nil
 }
 
+// SetAssignee updates the task's assignee, enforcing the same length bound
+// as NewTask (the contract's maxLength: 200 applies to edits too); nil
+// clears the assignee.
+func (t *Task) SetAssignee(assignee *string) error {
+	if err := validateAssignee(assignee); err != nil {
+		return err
+	}
+
+	t.Assignee = assignee
+	return nil
+}
+
 func validateTitle(title string) error {
 	if strings.TrimSpace(title) == "" {
 		return ErrTitleRequired
 	}
 	if utf8.RuneCountInString(title) > MaxTitleLength {
 		return ErrTitleTooLong
+	}
+	return nil
+}
+
+func validateAssignee(assignee *string) error {
+	if assignee != nil && utf8.RuneCountInString(*assignee) > MaxAssigneeLength {
+		return ErrAssigneeTooLong
 	}
 	return nil
 }

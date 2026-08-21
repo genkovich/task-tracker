@@ -61,8 +61,11 @@ func (s *TaskService) CreateTask(ctx context.Context, title string, assignee *st
 // fields (column_id, created_at, updated_at) from the stored row. On
 // success it broadcasts board.state_changed exactly once.
 func (s *TaskService) EditTask(ctx context.Context, taskID uuid.UUID, title string, assignee *string) (*domain.Task, error) {
-	task := &domain.Task{ID: taskID, Assignee: assignee}
+	task := &domain.Task{ID: taskID}
 	if err := task.SetTitle(title); err != nil {
+		return nil, err
+	}
+	if err := task.SetAssignee(assignee); err != nil {
 		return nil, err
 	}
 
