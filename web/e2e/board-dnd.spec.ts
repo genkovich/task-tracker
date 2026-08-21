@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Locator } from "@playwright/test";
 import { cardByTitle, columnByName, createTaskViaQuickAdd, openBoard } from "./helpers/board";
 
 // Desktop mouse drag over the Pointer Events implementation (TaskCard
@@ -62,3 +62,56 @@ test("Escape aborts the drag — the card stays in its column", async ({ page })
   await page.reload();
   await expect(columnByName(page, "To Do")).toContainText(title, { timeout: 10_000 });
 });
+
+// A2: previously the drag aimed at the column heading specifically — "the
+// rest of the column [was] unreliable" — because an empty/short column had
+// no real body to drop into (Column now stretches h-full/flex-1/min-h-24)
+// and the dragged card itself got clipped by the columns row's
+// overflow-x-auto once it crossed the row's edge (now a portalled ghost).
+// One test, two drops into "Done": first while it's still genuinely empty,
+// then into the empty space the first card leaves below it — proving both
+// fixes hold, not just the heading shortcut. The second drop reuses the
+// "DnD escape ..." card the test above left behind in "To Do" instead of
+// creating another task, and neither drop reloads to re-check persistence
+// (already pinned by the tests above) — this suite runs against the API's
+// shared 60 req/min budget (see playwright.config.ts).
+test("dropping away from the heading — into an empty column, then below the card it leaves — both move a card", async ({
+  page,
+}) => {
+  await openBoard(page);
+  const target = columnByName(page, "Done");
+
+  async function dropCardIntoDoneBody(card: Locator, expectTitle: string) {
+    const cardBox = await card.boundingBox();
+    const targetBox = await target.boundingBox();
+    if (!cardBox || !targetBox) throw new Error("could not measure drag source/target");
+
+    const dropX = targetBox.x + targetBox.width / 2;
+    const dropY = targetBox.y + targetBox.height - 16;
+
+    await page.mouse.move(cardBox.x + cardBox.width / 2, cardBox.y + cardBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(dropX, dropY, { steps: 12 });
+    await expect(target).toHaveClass(/ring-1/);
+    await page.mouse.up();
+    await expect(target).toContainText(expectTitle, { timeout: 10_000 });
+  }
+
+  // 1) "Done" starts empty — the drop lands in its body, not on the heading.
+  const title = `DnD empty column ${Date.now()}`;
+  await createTaskViaQuickAdd(page, title);
+  await dropCardIntoDoneBody(cardByTitle(page, title), title);
+
+  // 2) "Done" now holds a card — the columns row stretches every column to
+  // the tallest one's height (A2: `items-stretch` is the default once
+  // `sm:items-start` is gone), so there's still real empty space below it.
+  // The only card left in "To Do" at this point is the Escape test's.
+  const leftover = columnByName(page, "To Do").locator('[data-slot="card"]').first();
+  const leftoverTitle = await readCardTitle(leftover);
+  await dropCardIntoDoneBody(leftover, leftoverTitle);
+});
+
+async function readCardTitle(card: Locator): Promise<string> {
+  const text = await card.innerText();
+  return text.trim();
+}

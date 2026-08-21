@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { createRoutesStub } from "react-router";
 
 vi.mock("@/app/providers/auth", () => ({
   useAuth: vi.fn(),
@@ -38,17 +38,20 @@ const baseAuth = {
   fetchUser: vi.fn(),
 };
 
+// ProtectedLayout reads useMatches() (route `handle`, A1 fullWidth) — a hook
+// that only works inside a data router. createRoutesStub builds one from a
+// plain route tree, matching how @react-router/dev wires the real app more
+// closely than the classic <MemoryRouter><Routes> harness this test used
+// before.
 function renderLayout() {
-  return render(
-    <MemoryRouter initialEntries={["/board"]}>
-      <Routes>
-        <Route element={<ProtectedLayout />}>
-          <Route path="/board" element={<div>Dashboard content</div>} />
-        </Route>
-        <Route path="/" element={<div>Login page</div>} />
-      </Routes>
-    </MemoryRouter>,
-  );
+  const Stub = createRoutesStub([
+    {
+      Component: ProtectedLayout,
+      children: [{ path: "/board", Component: () => <div>Dashboard content</div> }],
+    },
+    { path: "/", Component: () => <div>Login page</div> },
+  ]);
+  return render(<Stub initialEntries={["/board"]} />);
 }
 
 describe("ProtectedLayout", () => {

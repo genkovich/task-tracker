@@ -43,10 +43,16 @@ export function cardByTitle(page: Page, title: string): Locator {
 }
 
 /** Creates a task through the leftmost column's quick-add and waits for it
- * to show up on the board. */
+ * to show up on the board. The form stays open after a successful submit
+ * (scr02 — so a caller can add several tasks in a row without reopening
+ * it), so this only clicks the «+» toggle when the form isn't open yet —
+ * calling it back to back in the same test must not toggle it shut. */
 export async function createTaskViaQuickAdd(page: Page, title: string): Promise<void> {
-  await page.getByRole("button", { name: "Додати задачу" }).click();
-  await page.getByLabel("Назва задачі").fill(title);
+  const input = page.getByLabel("Назва задачі");
+  if (!(await input.isVisible().catch(() => false))) {
+    await page.getByRole("button", { name: "Додати задачу" }).click();
+  }
+  await input.fill(title);
   await page.getByRole("button", { name: "Додати", exact: true }).click();
   await expect(cardByTitle(page, title)).toBeVisible();
 }
