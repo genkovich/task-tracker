@@ -54,16 +54,22 @@ afterEach(() => {
 });
 
 describe("useBoardEvents", () => {
-  it("opens an SSE connection to /api/v1/board/events", () => {
-    renderHook(() => useBoardEvents(vi.fn()));
+  it("opens an SSE connection to the board's /api/v1/boards/{boardId}/events", () => {
+    renderHook(() => useBoardEvents("board-1", vi.fn()));
 
     expect(MockEventSource.instances).toHaveLength(1);
-    expect(MockEventSource.instances[0].url).toBe(`${BASE_URL}/api/v1/board/events`);
+    expect(MockEventSource.instances[0].url).toBe(`${BASE_URL}/api/v1/boards/board-1/events`);
+  });
+
+  it("opens no connection without a boardId", () => {
+    renderHook(() => useBoardEvents("", vi.fn()));
+
+    expect(MockEventSource.instances).toHaveLength(0);
   });
 
   it("triggers exactly one refetch when a board.state_changed message arrives", () => {
     const onStateChanged = vi.fn();
-    renderHook(() => useBoardEvents(onStateChanged));
+    renderHook(() => useBoardEvents("board-1", onStateChanged));
 
     const source = MockEventSource.instances[0];
     source.emit("board.state_changed");
@@ -73,7 +79,7 @@ describe("useBoardEvents", () => {
 
   it("does not refetch for unrelated event types", () => {
     const onStateChanged = vi.fn();
-    renderHook(() => useBoardEvents(onStateChanged));
+    renderHook(() => useBoardEvents("board-1", onStateChanged));
 
     const source = MockEventSource.instances[0];
     source.emit("message");
@@ -89,7 +95,7 @@ describe("useBoardEvents", () => {
   // stale state forever.
   it("refetches when the connection reopens after an error (reconnect recovery)", () => {
     const onStateChanged = vi.fn();
-    renderHook(() => useBoardEvents(onStateChanged));
+    renderHook(() => useBoardEvents("board-1", onStateChanged));
 
     const source = MockEventSource.instances[0];
     source.onopen?.(new Event("open"));
@@ -103,7 +109,7 @@ describe("useBoardEvents", () => {
 
   it("refetches only once across repeated errors while the server stays down", () => {
     const onStateChanged = vi.fn();
-    renderHook(() => useBoardEvents(onStateChanged));
+    renderHook(() => useBoardEvents("board-1", onStateChanged));
 
     const source = MockEventSource.instances[0];
     source.onopen?.(new Event("open"));
@@ -119,7 +125,7 @@ describe("useBoardEvents", () => {
   });
 
   it("closes the connection on unmount", () => {
-    const { unmount } = renderHook(() => useBoardEvents(vi.fn()));
+    const { unmount } = renderHook(() => useBoardEvents("board-1", vi.fn()));
     const source = MockEventSource.instances[0];
 
     unmount();

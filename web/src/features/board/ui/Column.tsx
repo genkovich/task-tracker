@@ -9,6 +9,9 @@ import { TaskCard } from "@/features/board/ui/TaskCard";
 
 export interface ColumnProps {
   column: ColumnState;
+  /** Дошка колонки — quick-add створює задачу саме на ній (boards BRD-08).
+   * Не потрібен у read-only рендері (public viewer), де quick-add не існує. */
+  boardId?: string;
   /** AC-01: quick-add only renders in the leftmost column (`position === 0`). */
   isLeftmost?: boolean;
   onTaskClick?: (task: Task) => void;
@@ -40,6 +43,7 @@ const COLUMN_ACCENTS = ["bg-status-todo", "bg-status-in-progress", "bg-status-do
  * pointer drag — Pointer Events, not HTML5 dragover/drop, so touch works. */
 export function Column({
   column,
+  boardId,
   isLeftmost,
   onTaskClick,
   dragTaskId,
@@ -53,7 +57,7 @@ export function Column({
 }: ColumnProps) {
   const [adding, setAdding] = useState(false);
   const accent = COLUMN_ACCENTS[column.position % COLUMN_ACCENTS.length];
-  const canAdd = isLeftmost && !readOnly;
+  const canAdd = isLeftmost && !readOnly && boardId != null;
 
   return (
     <section
@@ -81,8 +85,9 @@ export function Column({
         )}
       </header>
       <div className="flex flex-col gap-3">
-        {canAdd && adding && (
+        {canAdd && boardId && adding && (
           <QuickAddTask
+            boardId={boardId}
             onCreated={(task) => onTaskCreated?.(task)}
             onCancel={() => setAdding(false)}
           />

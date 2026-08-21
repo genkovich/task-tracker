@@ -153,6 +153,7 @@ describe("Column — quick-add in the leftmost column", () => {
       return (
         <Column
           column={{ ...leftmostColumn, tasks }}
+          boardId="board-1"
           isLeftmost
           onTaskCreated={(task) => setTasks((prev) => [...prev, task])}
         />
@@ -167,7 +168,7 @@ describe("Column — quick-add in the leftmost column", () => {
     await user.click(screen.getByRole("button", { name: "Додати" }));
 
     await waitFor(() => {
-      expect(mockCreateTask).toHaveBeenCalledWith({ title: "Write the report" });
+      expect(mockCreateTask).toHaveBeenCalledWith({ board_id: "board-1", title: "Write the report" });
     });
 
     // Observable outcome the AC names: the task shows up in the column right
@@ -185,7 +186,7 @@ describe("Column — quick-add in the leftmost column", () => {
   it("shows an inline required-title error and makes no API call when submitting an empty title", async () => {
     const user = userEvent.setup();
 
-    render(<Column column={leftmostColumn} isLeftmost />);
+    render(<Column column={leftmostColumn} boardId="board-1" isLeftmost />);
 
     await user.click(screen.getByRole("button", { name: "Додати задачу" }));
     await user.click(screen.getByRole("button", { name: "Додати" }));

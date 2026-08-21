@@ -2,12 +2,17 @@ import { useEffect } from "react";
 import { BASE_URL } from "@/shared/api/client";
 
 /**
- * Subscribes to the board's SSE event stream (`GET /api/v1/board/events`,
- * ADR-0002) and calls `onStateChanged` whenever a `board.state_changed`
- * signal arrives, so the caller can refetch the board state.
+ * Subscribes to one board's SSE event stream
+ * (`GET /api/v1/boards/{boardId}/events`, ADR-0002, boards BRD-05) and calls
+ * `onStateChanged` whenever a `board.state_changed` signal arrives, so the
+ * caller can refetch the board state. Events are board-scoped: mutations on
+ * other boards never fire here.
  */
-export function useBoardEvents(onStateChanged: () => void): void {
-  useBoardEventsAt(`${BASE_URL}/api/v1/board/events`, onStateChanged);
+export function useBoardEvents(boardId: string, onStateChanged: () => void): void {
+  useBoardEventsAt(
+    boardId ? `${BASE_URL}/api/v1/boards/${encodeURIComponent(boardId)}/events` : null,
+    onStateChanged,
+  );
 }
 
 /**
@@ -19,8 +24,10 @@ export function usePublicBoardEvents(token: string, onStateChanged: () => void):
   useBoardEventsAt(`${BASE_URL}/api/v1/public/${encodeURIComponent(token)}/events`, onStateChanged);
 }
 
-function useBoardEventsAt(url: string, onStateChanged: () => void): void {
+function useBoardEventsAt(url: string | null, onStateChanged: () => void): void {
   useEffect(() => {
+    // No url — nothing to subscribe to (a route without its boardId yet).
+    if (!url) return;
     const source = new EventSource(url);
 
     const handleStateChanged = () => onStateChanged();

@@ -9,7 +9,7 @@ export default function LoginPage() {
   const { user, isLoading } = useAuth();
 
   if (!isLoading && user) {
-    return <Navigate to="/board" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   return (

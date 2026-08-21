@@ -21,7 +21,7 @@ export default function NotFoundPage() {
         </p>
         <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Button asChild>
-            <Link to="/board">Go to the board</Link>
+            <Link to="/dashboard">Go to the dashboard</Link>
           </Button>
           <Button asChild variant="outline">
             <Link to="/">Back home</Link>

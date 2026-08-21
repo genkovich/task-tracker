@@ -81,7 +81,7 @@ describe("AuthCallbackPage", () => {
     });
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith("/board", {
+      expect(mockNavigate).toHaveBeenCalledWith("/dashboard", {
         replace: true,
       });
     });

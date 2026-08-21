@@ -7,7 +7,8 @@ export default [
   route("b/:token", "pages/board-public/ui/BoardPublicPage.tsx"),
   route("auth/callback", "pages/auth-callback/ui/AuthCallbackPage.tsx"),
   layout("app/layouts/AuthGate.tsx", [
-    route("board", "pages/board/ui/BoardPage.tsx"),
+    route("board", "pages/board/ui/BoardIndexPage.tsx"),
+    route("board/:boardId", "pages/board/ui/BoardPage.tsx"),
   ]),
   layout("app/layouts/ProtectedLayout.tsx", [
     route("dashboard", "pages/dashboard/ui/DashboardPage.tsx"),

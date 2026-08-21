@@ -4,9 +4,9 @@ import userEvent from "@testing-library/user-event";
 import { PublicLinkPanel } from "./PublicLinkPanel";
 import { ApiClientError } from "@/shared/api/client";
 
-// api/model do not exist yet (RED phase) — mocked at the module boundary the
-// component is expected to depend on (T17 "What": api/ calls issuePublicLink /
-// revokePublicLink against POST/DELETE /api/v1/board/public-link).
+// Mocked at the module boundary the component depends on (T17 "What": api/
+// calls issuePublicLink / revokePublicLink against
+// POST/DELETE /api/v1/boards/{boardId}/public-link).
 const mockIssue = vi.fn();
 const mockRevoke = vi.fn();
 
@@ -39,7 +39,7 @@ describe("PublicLinkPanel", () => {
     const user = userEvent.setup();
     mockIssue.mockResolvedValue(issuedLink);
 
-    render(<PublicLinkPanel />);
+    render(<PublicLinkPanel boardId="board-1" />);
     await openPanel(user);
 
     // No-link state: an issue action, no revoke action yet.
@@ -53,7 +53,7 @@ describe("PublicLinkPanel", () => {
     await user.click(screen.getByRole("button", { name: /отримати лінк|get link/i }));
 
     await waitFor(() => {
-      expect(mockIssue).toHaveBeenCalled();
+      expect(mockIssue).toHaveBeenCalledWith("board-1");
     });
 
     // The observable outcome the AC names: the returned URL is shown to the
@@ -82,7 +82,7 @@ describe("PublicLinkPanel", () => {
       ),
     );
 
-    render(<PublicLinkPanel />);
+    render(<PublicLinkPanel boardId="board-1" />);
     await openPanel(user);
 
     await user.click(screen.getByRole("button", { name: /отримати лінк|get link/i }));
@@ -102,7 +102,7 @@ describe("PublicLinkPanel", () => {
     const user = userEvent.setup();
     mockIssue.mockResolvedValue(issuedLink);
 
-    render(<PublicLinkPanel />);
+    render(<PublicLinkPanel boardId="board-1" />);
     await openPanel(user);
     await user.click(screen.getByRole("button", { name: /отримати лінк|get link/i }));
 
@@ -117,7 +117,7 @@ describe("PublicLinkPanel", () => {
   it("shows the existing link and the revoke action when mounted with the board's public_link", async () => {
     const user = userEvent.setup();
 
-    render(<PublicLinkPanel publicLink={issuedLink} />);
+    render(<PublicLinkPanel boardId="board-1" publicLink={issuedLink} />);
     await openPanel(user);
 
     expect(await screen.findByText(/opaque-token-abc123/)).toBeInTheDocument();
@@ -134,11 +134,11 @@ describe("PublicLinkPanel", () => {
   it("adopts a public_link arriving via a prop change after mount", async () => {
     const user = userEvent.setup();
 
-    const { rerender } = render(<PublicLinkPanel publicLink={null} />);
+    const { rerender } = render(<PublicLinkPanel boardId="board-1" publicLink={null} />);
     await openPanel(user);
     expect(screen.getByRole("button", { name: /отримати лінк|get link/i })).toBeInTheDocument();
 
-    rerender(<PublicLinkPanel publicLink={issuedLink} />);
+    rerender(<PublicLinkPanel boardId="board-1" publicLink={issuedLink} />);
 
     expect(await screen.findByText(/opaque-token-abc123/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /відкликати|revoke/i })).toBeInTheDocument();
@@ -148,11 +148,11 @@ describe("PublicLinkPanel", () => {
   it("clears to the no-link state when the prop's link disappears after mount", async () => {
     const user = userEvent.setup();
 
-    const { rerender } = render(<PublicLinkPanel publicLink={issuedLink} />);
+    const { rerender } = render(<PublicLinkPanel boardId="board-1" publicLink={issuedLink} />);
     await openPanel(user);
     expect(await screen.findByText(/opaque-token-abc123/)).toBeInTheDocument();
 
-    rerender(<PublicLinkPanel publicLink={null} />);
+    rerender(<PublicLinkPanel boardId="board-1" publicLink={null} />);
 
     await waitFor(() => {
       expect(screen.queryByText(/opaque-token-abc123/)).not.toBeInTheDocument();
@@ -168,7 +168,7 @@ describe("PublicLinkPanel", () => {
     mockIssue.mockResolvedValue(issuedLink);
     mockRevoke.mockResolvedValue(undefined);
 
-    render(<PublicLinkPanel />);
+    render(<PublicLinkPanel boardId="board-1" />);
     await openPanel(user);
     await user.click(screen.getByRole("button", { name: /отримати лінк|get link/i }));
 
@@ -179,7 +179,7 @@ describe("PublicLinkPanel", () => {
     await user.click(screen.getByRole("button", { name: /відкликати|revoke/i }));
 
     await waitFor(() => {
-      expect(mockRevoke).toHaveBeenCalled();
+      expect(mockRevoke).toHaveBeenCalledWith("board-1");
     });
 
     // Observable outcome: back to no-link state — URL gone, issue action back,

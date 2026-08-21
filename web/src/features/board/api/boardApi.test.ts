@@ -20,18 +20,74 @@ afterEach(() => {
 });
 
 describe("boardApi.getBoard", () => {
-  it("GETs the board state from /api/v1/board", async () => {
-    const board = { columns: [], public_link: null };
+  it("GETs the board state from /api/v1/boards/{boardId}", async () => {
+    const board = { id: "board-1", name: "Дошка команди", columns: [], public_link: null };
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(board));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await boardApi.getBoard();
+    const result = await boardApi.getBoard("board-1");
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, options] = fetchMock.mock.calls[0];
-    expect(url).toBe(`${BASE_URL}/api/v1/board`);
+    expect(url).toBe(`${BASE_URL}/api/v1/boards/board-1`);
     expect(options?.method ?? "GET").toBe("GET");
     expect(result).toEqual(board);
+  });
+});
+
+describe("boardApi.listBoards", () => {
+  it("GETs the dashboard rows from /api/v1/boards", async () => {
+    const boards = [
+      { id: "board-1", name: "Дошка команди", created_at: "2026-08-20T00:00:00Z", task_count: 3 },
+    ];
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(boards));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await boardApi.listBoards();
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/boards`);
+    expect(options?.method ?? "GET").toBe("GET");
+    expect(result).toEqual(boards);
+  });
+});
+
+describe("boardApi.createBoard", () => {
+  it("POSTs the name to /api/v1/boards and resolves with the new board", async () => {
+    const created = {
+      id: "board-2",
+      name: "Воркшоп",
+      created_at: "2026-08-21T00:00:00Z",
+      columns: [],
+      public_link: null,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(created, 201));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await boardApi.createBoard("Воркшоп");
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/boards`);
+    expect(options.method).toBe("POST");
+    expect(JSON.parse(options.body)).toEqual({ name: "Воркшоп" });
+    expect(result).toEqual(created);
+  });
+
+  it("maps a 422 empty-name error to an ApiClientError", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(
+          { error: { code: "board.name_required", message: "board name is required" } },
+          422,
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(boardApi.createBoard("")).rejects.toMatchObject({
+      code: "board.name_required",
+      statusCode: 422,
+    });
   });
 });
 
@@ -60,7 +116,7 @@ describe("boardApi — path parameters are URL-encoded", () => {
 });
 
 describe("boardApi.createTask", () => {
-  it("POSTs the task title/assignee to /api/v1/tasks", async () => {
+  it("POSTs board_id + title/assignee to /api/v1/tasks", async () => {
     const created = {
       id: "task-1",
       column_id: "col-1",
@@ -72,26 +128,36 @@ describe("boardApi.createTask", () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(created, 201));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await boardApi.createTask({ title: "Test task", assignee: "Test User" });
+    const result = await boardApi.createTask({
+      board_id: "board-1",
+      title: "Test task",
+      assignee: "Test User",
+    });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, options] = fetchMock.mock.calls[0];
     expect(url).toBe(`${BASE_URL}/api/v1/tasks`);
     expect(options.method).toBe("POST");
-    expect(JSON.parse(options.body)).toEqual({ title: "Test task", assignee: "Test User" });
+    expect(JSON.parse(options.body)).toEqual({
+      board_id: "board-1",
+      title: "Test task",
+      assignee: "Test User",
+    });
     expect(result).toEqual(created);
   });
 
   it("maps a 422 empty-title error to an ApiClientError with the server's code/message", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse(
-        { error: { code: "task.title_required", message: "task title is required" } },
-        422,
-      ),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(
+          { error: { code: "task.title_required", message: "task title is required" } },
+          422,
+        ),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(boardApi.createTask({ title: "" })).rejects.toMatchObject({
+    await expect(boardApi.createTask({ board_id: "board-1", title: "" })).rejects.toMatchObject({
       name: "ApiClientError",
       code: "task.title_required",
       message: "task title is required",
@@ -124,9 +190,11 @@ describe("boardApi.editTask", () => {
   });
 
   it("maps a 404 task-not-found error to an ApiClientError", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({ error: { code: "task.not_found", message: "task not found" } }, 404),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ error: { code: "task.not_found", message: "task not found" } }, 404),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(boardApi.editTask("missing-task", { title: "x" })).rejects.toBeInstanceOf(
@@ -168,12 +236,14 @@ describe("boardApi.moveTask", () => {
   });
 
   it("maps a 422 invalid-column error to an ApiClientError", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse(
-        { error: { code: "board.column_not_found", message: "target column does not exist" } },
-        422,
-      ),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(
+          { error: { code: "board.column_not_found", message: "target column does not exist" } },
+          422,
+        ),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(boardApi.moveTask("task-1", "not-a-column")).rejects.toMatchObject({
@@ -184,7 +254,9 @@ describe("boardApi.moveTask", () => {
 
 describe("boardApi.deleteTask", () => {
   it("DELETEs /api/v1/tasks/{taskId} and resolves with no content", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204, json: () => Promise.resolve(undefined) });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 204, json: () => Promise.resolve(undefined) });
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await boardApi.deleteTask("task-1");
@@ -197,9 +269,11 @@ describe("boardApi.deleteTask", () => {
   });
 
   it("maps a 404 task-not-found error to an ApiClientError", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({ error: { code: "task.not_found", message: "task not found" } }, 404),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ error: { code: "task.not_found", message: "task not found" } }, 404),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(boardApi.deleteTask("missing-task")).rejects.toBeInstanceOf(ApiClientError);
