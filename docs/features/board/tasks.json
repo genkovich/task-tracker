@@ -1,0 +1,193 @@
+{
+  "slug": "board",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Promote staged board migrations into the live migrations/ tree",
+      "layer": "migration",
+      "deps": [],
+      "acs": [],
+      "dod": "all six paired migrations apply cleanly in order against the live migrate-go-up and revert cleanly in reverse order via migrate-go-down",
+      "files_hint": [
+        "docs/features/board/migrations/01_create_boards.up.sql",
+        "docs/features/board/migrations/01_create_boards.down.sql",
+        "docs/features/board/migrations/02_seed_board.up.sql",
+        "docs/features/board/migrations/02_seed_board.down.sql",
+        "docs/features/board/migrations/03_create_columns.up.sql",
+        "docs/features/board/migrations/03_create_columns.down.sql",
+        "docs/features/board/migrations/04_seed_columns.up.sql",
+        "docs/features/board/migrations/04_seed_columns.down.sql",
+        "docs/features/board/migrations/05_create_tasks.up.sql",
+        "docs/features/board/migrations/05_create_tasks.down.sql",
+        "docs/features/board/migrations/06_create_public_links.up.sql",
+        "docs/features/board/migrations/06_create_public_links.down.sql"
+      ]
+    },
+    {
+      "id": "T2",
+      "title": "Model board domain entities and sentinel errors",
+      "layer": "domain",
+      "deps": [],
+      "acs": ["AC-02"],
+      "dod": "unit tests for Task construction reject an empty title (AC-02) and pass for a non-empty one; Board/Column/Task/PublicLink types carry no framework imports",
+      "files_hint": ["api/internal/modules/board/domain/"]
+    },
+    {
+      "id": "T3",
+      "title": "Implement Postgres repository for board, columns, tasks, public_links",
+      "layer": "infra",
+      "deps": ["T1", "T2"],
+      "acs": ["AC-01", "AC-04", "AC-05", "AC-06"],
+      "dod": "integration tests (dbtest + testcontainers) cover: insert task into the leftmost column (AC-01), update a task's column_id (AC-04), reject a move to a non-existent column_id via FK/lookup (AC-05), and hard-delete a task (AC-06)",
+      "files_hint": ["api/internal/modules/board/ports/repo.go", "api/internal/modules/board/infra/postgres_repo.go"]
+    },
+    {
+      "id": "T4",
+      "title": "Implement in-process SSE hub with per-token connection registry",
+      "layer": "infra",
+      "deps": [],
+      "acs": [],
+      "dod": "unit tests confirm a broadcast reaches every registered connection, and closing a token's registry entry closes exactly its connections (supports AC-11 revocation in T9) — derives from sad.md §6 (ADR-0002) and events.md connection-lifecycle section",
+      "files_hint": ["api/internal/modules/board/infra/sse_hub.go", "api/internal/modules/board/ports/broadcaster.go"]
+    },
+    {
+      "id": "T5",
+      "title": "Implement task use-cases: create, edit, move, delete",
+      "layer": "app",
+      "deps": ["T2", "T3"],
+      "acs": ["AC-01", "AC-02", "AC-03", "AC-04", "AC-05", "AC-06"],
+      "dod": "unit tests (repo faked via the ports interface) cover: create in leftmost column (AC-01), reject empty title (AC-02), edit title/assignee (AC-03), move to a valid column (AC-04), reject move to an invalid column (AC-05), delete (AC-06); each mutation returns a signal for the caller to broadcast (ADR-0002)",
+      "files_hint": ["api/internal/modules/board/app/task_service.go"]
+    },
+    {
+      "id": "T6",
+      "title": "Implement public-link and board-state use-cases",
+      "layer": "app",
+      "deps": ["T2", "T3"],
+      "acs": ["AC-07", "AC-08", "AC-09", "AC-11"],
+      "dod": "unit tests cover: issue a link when none is active (AC-07), reject issuing a second active link (409 case), revoke the active link (AC-08), fetch board state by valid token (AC-09), and reject a revoked/unknown token (AC-11)",
+      "files_hint": ["api/internal/modules/board/app/link_service.go", "api/internal/modules/board/app/state_service.go"]
+    },
+    {
+      "id": "T7",
+      "title": "Add HTTP handlers for task CRUD + move, with rate limiting on create",
+      "layer": "ports",
+      "deps": ["T5"],
+      "acs": ["AC-01", "AC-02", "AC-03", "AC-04", "AC-05", "AC-06"],
+      "dod": "handler tests cover POST/PATCH/DELETE/move against openapi.yaml's documented status codes (201/200/204/404/422), the create endpoint enforces the ≤30/min per-client token-bucket limit (spec §6.1, 429 per openapi.yaml), and mapError translates every T5 sentinel error to the documented apperr code",
+      "files_hint": ["api/internal/modules/board/ports/task_handler.go", "api/internal/modules/board/ports/dto.go", "api/internal/modules/board/ports/errors.go"]
+    },
+    {
+      "id": "T8",
+      "title": "Add HTTP handlers for board state and public-link issue/revoke",
+      "layer": "ports",
+      "deps": ["T6"],
+      "acs": ["AC-07", "AC-08"],
+      "dod": "handler tests cover GET /api/v1/board (BoardState incl. public_link presence), POST /api/v1/board/public-link (201, 409 when already active), DELETE /api/v1/board/public-link (204, 404 when none active) — matching openapi.yaml",
+      "files_hint": ["api/internal/modules/board/ports/board_handler.go", "api/internal/modules/board/ports/link_handler.go"]
+    },
+    {
+      "id": "T9",
+      "title": "Add SSE endpoints for team-editor and public-viewer live updates",
+      "layer": "ports",
+      "deps": ["T4", "T6"],
+      "acs": ["AC-11"],
+      "dod": "handler test confirms GET /api/v1/board/events and GET /api/v1/public/{token}/events register the connection with the SSE hub (T4) keyed by token/global, emit board.state_changed.v1 per events.md, and that DELETE /api/v1/board/public-link synchronously closes every connection registered under the revoked token (AC-11)",
+      "files_hint": ["api/internal/modules/board/ports/sse_handler.go"]
+    },
+    {
+      "id": "T10",
+      "title": "Add public-viewer HTTP handlers for read-only board access by token",
+      "layer": "ports",
+      "deps": ["T6"],
+      "acs": ["AC-09", "AC-10", "AC-11"],
+      "dod": "handler tests cover GET /api/v1/public/{token}/board returning PublicBoardState for a valid token (AC-09) and 404 board.link_invalid for a revoked/unknown token (AC-11); the public router registers no mutating routes, so drag/edit/delete attempts have no endpoint to reach (AC-10, enforced structurally)",
+      "files_hint": ["api/internal/modules/board/ports/public_handler.go"]
+    },
+    {
+      "id": "T11",
+      "title": "Wire the board module into main.go and register routes",
+      "layer": "wiring",
+      "deps": ["T7", "T8", "T9", "T10"],
+      "acs": [],
+      "dod": "board.New(...) constructs the module from its infra/app/ports layers and returns a *ports.Handler; cmd/api/main.go registers it as a RouteRegistrar with no authMW (ADR-0001 — board is deliberately unauthenticated); `make -C api run` boots and GET /api/v1/board returns 200",
+      "files_hint": ["api/internal/modules/board/board.go", "api/cmd/api/main.go"]
+    },
+    {
+      "id": "T12",
+      "title": "Write integration tests for concurrent move and link-revocation invariants",
+      "layer": "tests",
+      "deps": ["T3", "T5", "T9"],
+      "acs": ["AC-05b", "AC-11"],
+      "dod": "an integration test (`-tags integration`) fires two concurrent MoveTask calls for the same task to different columns and asserts the final column matches whichever write landed last, with no lost update beyond that (AC-05b, sad.md §10 QG-2); a second integration test opens an SSE connection on a token, revokes the link, and asserts the connection is closed synchronously (AC-11, sad.md §6 Flow 3)",
+      "files_hint": ["api/internal/modules/board/app/board_service_integration_test.go"]
+    },
+    {
+      "id": "T13",
+      "title": "Build the board feature's typed API client and SSE subscription hook",
+      "layer": "ui",
+      "deps": [],
+      "acs": [],
+      "dod": "unit tests cover the typed calls (getBoard, createTask, editTask, moveTask, deleteTask) built on the existing shared/api/client.ts pattern (error mapping via showApiError) and an EventSource-wrapping hook that triggers a board refetch on board.state_changed (events.md); reuses the client, adds no new HTTP layer",
+      "files_hint": ["web/src/features/board/api/"]
+    },
+    {
+      "id": "T14",
+      "title": "Build drag-and-drop board state with optimistic updates",
+      "layer": "ui",
+      "deps": ["T13"],
+      "acs": ["AC-04", "AC-05"],
+      "dod": "component/unit tests cover: dropping a task on a valid column optimistically moves it and calls the move API (AC-04), dropping outside any valid column leaves the task in place with no API call (AC-05), and a failed API call rolls the optimistic update back",
+      "files_hint": ["web/src/features/board/model/"]
+    },
+    {
+      "id": "T15",
+      "title": "Build task card, column, and quick-add UI components",
+      "layer": "ui",
+      "deps": ["T14"],
+      "acs": ["AC-01", "AC-02"],
+      "dod": "component tests cover: quick-add in the leftmost column creates a task and shows it immediately (AC-01, SCR-02), submitting an empty title shows the required-name error inline and does not call the API (AC-02); components reuse shared/ui Card, Input, Button — no new primitives introduced",
+      "files_hint": [
+        "web/src/features/board/ui/TaskCard.tsx",
+        "web/src/features/board/ui/Column.tsx",
+        "web/src/features/board/ui/QuickAddTask.tsx"
+      ]
+    },
+    {
+      "id": "T16",
+      "title": "Build the edit-task modal (title, assignee, save, delete)",
+      "layer": "ui",
+      "deps": ["T14"],
+      "acs": ["AC-03", "AC-06"],
+      "dod": "component tests cover: editing title/assignee and saving updates the card immediately (AC-03, SCR-03), deleting from the modal removes the task from the board (AC-06); reuses shared/ui Dialog, Input, Button — no new primitives",
+      "files_hint": ["web/src/features/board/ui/EditTaskModal.tsx"]
+    },
+    {
+      "id": "T17",
+      "title": "Build the public-link panel feature (issue/revoke)",
+      "layer": "ui",
+      "deps": [],
+      "acs": ["AC-07", "AC-08"],
+      "dod": "component tests cover: no active link shows an 'issue link' action that displays the returned URL on success (AC-07, SCR-04), an active link shows a 'revoke' action that clears the panel back to the no-link state on success (AC-08); reuses shared/ui Popover, Button, Badge — no new primitives",
+      "files_hint": ["web/src/features/public-link/"]
+    },
+    {
+      "id": "T18",
+      "title": "Assemble the team-editor board page and register its route",
+      "layer": "ui",
+      "deps": ["T15", "T16", "T17"],
+      "acs": [],
+      "dod": "pages/board composes features/board (columns + cards + quick-add + edit modal) and features/public-link (SCR-04 entry point) with no business logic of its own (CLAUDE.md — pages assemble, don't hold logic); registered in web/src/routes.ts as the default product page and reachable via `npm run dev`",
+      "files_hint": ["web/src/pages/board/", "web/src/routes.ts"]
+    },
+    {
+      "id": "T19",
+      "title": "Assemble the public read-only board page and its unavailable-link state",
+      "layer": "ui",
+      "deps": ["T13", "T15"],
+      "acs": ["AC-09", "AC-10", "AC-11"],
+      "dod": "component test covers: a valid token renders columns/tasks read-only with no drag handlers or edit/delete affordances rendered (AC-09, AC-10, SCR-05); an invalid/revoked token renders the 'link unavailable' state instead of the board (AC-11, SCR-06); registered in web/src/routes.ts at the public link path",
+      "files_hint": ["web/src/pages/board-public/", "web/src/routes.ts"]
+    }
+  ]
+}
