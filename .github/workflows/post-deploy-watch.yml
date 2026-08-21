@@ -54,7 +54,8 @@ jobs:
             else
               RATE5=0; P95=NaN   # без батарейки observability вахта тримає лише readyz + логи
             fi
-            PANICS=$($SSH "cd $APP_DIR && docker compose -f docker-compose.prod.yml logs api --since 5m 2>/dev/null | grep -ciE 'panic|fatal'" || echo 0)
+            PANICS=$($SSH "cd $APP_DIR && docker compose -f docker-compose.prod.yml logs api --since 5m 2>/dev/null | grep -ciE 'panic|fatal' || true")
+            PANICS=${PANICS:-0}
             echo "- round $i/$ROUNDS: readyz=$READY 5xx_rate=$RATE5 p95=${P95}s panics=$PANICS" | tee -a $REPORT
             [ "$READY" != "200" ] && FAIL="readyz=$READY"
             [ "$PANICS" != "0" ] && FAIL="panics=$PANICS"
