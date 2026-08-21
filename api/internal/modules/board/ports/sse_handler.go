@@ -3,6 +3,7 @@ package ports
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -88,9 +89,15 @@ func (h *SSEHandler) handleStreamPublicBoardEvents(w http.ResponseWriter, r *htt
 	stream(w, r, events)
 }
 
+// heartbeatInterval paces the SSE keepalive comments: often enough to stop
+// idle-connection reapers (proxies, LBs) from cutting a quiet stream, rare
+// enough to cost nothing.
+const heartbeatInterval = 20 * time.Second
+
 // stream writes SSE headers, then relays every event off events onto w until
 // events closes (hub.CloseToken — AC-11) or the client disconnects
-// (r.Context().Done()).
+// (r.Context().Done()). Between events it emits an SSE comment line as a
+// heartbeat so intermediaries never see the connection as idle.
 func stream(w http.ResponseWriter, r *http.Request, events <-chan Event) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -108,6 +115,9 @@ func stream(w http.ResponseWriter, r *http.Request, events <-chan Event) {
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
+	heartbeat := time.NewTicker(heartbeatInterval)
+	defer heartbeat.Stop()
+
 	for {
 		select {
 		case evt, ok := <-events:
@@ -118,6 +128,11 @@ func stream(w http.ResponseWriter, r *http.Request, events <-chan Event) {
 				return
 			}
 			writeSSEEvent(w, evt)
+			flusher.Flush()
+		case <-heartbeat.C:
+			// SSE comment line — ignored by EventSource, keeps the
+			// connection visibly alive for proxies.
+			_, _ = w.Write([]byte(": keepalive\n\n"))
 			flusher.Flush()
 		case <-r.Context().Done():
 			return
