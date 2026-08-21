@@ -14,10 +14,19 @@ export const SEEDED_ADMIN = {
   role: "admin",
 };
 
-/** Signs in as the seeded admin and opens the board. */
+// The first board's id, resolved once per worker via the /board redirect
+// (BRD-07). Cached so every later openBoard skips the extra listBoards
+// request — the API's shared 60 req/min limit is the suite's scarcest
+// resource (see playwright.config.ts workers note).
+let firstBoardPath: string | null = null;
+
+/** Signs in as the seeded admin and opens the first board: /board redirects
+ * to /board/{boardId} of the first (seeded) board — BRD-07. */
 export async function openBoard(page: Page): Promise<void> {
   await loginAsAdmin(page, SEEDED_ADMIN);
-  await page.goto("/board");
+  await page.goto(firstBoardPath ?? "/board");
+  await page.waitForURL(/\/board\/[0-9a-f-]{36}$/);
+  firstBoardPath = new URL(page.url()).pathname;
   await expect(page.getByRole("heading", { name: "To Do", exact: true })).toBeVisible();
 }
 
