@@ -94,7 +94,7 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
               example:
                 code: "tasks.name_required"
-                message: "Card name is required."
+                message: "card name is required"
 
   /api/v1/cards/{id}:
     patch:
@@ -129,7 +129,7 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
               example:
                 code: "tasks.name_required"
-                message: "Card name is required."
+                message: "card name is required"
         "404":
           $ref: "#/components/responses/CardNotFound"
 
@@ -190,7 +190,7 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
               example:
                 code: "tasks.card_not_found"
-                message: "Card not found."
+                message: "card not found"
         "400":
           description: The requested column isn't one of the three fixed columns
           content:
@@ -198,7 +198,7 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
               example:
                 code: "tasks.invalid_column"
-                message: "column_status must be one of todo, in_progress, done."
+                message: "column_status must be one of todo, in_progress, done"
 
   /api/v1/cards/events:
     get:
@@ -325,7 +325,7 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
               example:
                 code: "common.not_found"
-                message: "Not found."
+                message: "not found"
 
   /api/v1/public/boards/{token}/events:
     get:
@@ -357,7 +357,7 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
               example:
                 code: "common.not_found"
-                message: "Not found."
+                message: "not found"
 
 components:
   securitySchemes:
@@ -378,7 +378,7 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
           example:
             code: "tasks.card_not_found"
-            message: "Card not found."
+            message: "card not found"
     LinkNotFound:
       description: Error — public link does not exist
       content:
@@ -386,7 +386,7 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
           example:
             code: "tasks.link_not_found"
-            message: "Public link not found."
+            message: "public link not found"
 
   schemas:
     Error:

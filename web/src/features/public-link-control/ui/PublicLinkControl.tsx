@@ -67,7 +67,12 @@ export function PublicLinkControl() {
     <div className="flex items-center gap-2">
       {link.token ? (
         <>
-          <Input readOnly value={shareUrl(link.token)} className="w-64 text-xs" />
+          <Input
+            readOnly
+            value={shareUrl(link.token)}
+            className="w-64 text-xs"
+            data-testid="public-link-input"
+          />
           <Button
             type="button"
             variant="ghost"
