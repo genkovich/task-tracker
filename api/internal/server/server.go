@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/httprate"
 
 	"github.com/genkovich/task-tracker/api/internal/platform/database"
+	"github.com/genkovich/task-tracker/api/internal/platform/httputil"
 )
 
 // RouteRegistrar is implemented by module handlers to register their routes.
@@ -111,18 +112,9 @@ func (s *Server) setupMiddleware() {
 	// Caddy is the single trusted hop in front of the API, so the rightmost
 	// X-Forwarded-For entry is the client. Read it with middleware.GetClientIP.
 	s.router.Use(middleware.ClientIPFromXFF())
-	s.router.Use(middleware.Logger)
+	s.router.Use(requestLogger)
 	s.router.Use(middleware.Recoverer)
 	s.router.Use(requestSizeLimit(1 << 20)) // 1 MB
-}
-
-// clientIPKey keys the rate limiter by the proxy-derived client IP and falls
-// back to RemoteAddr for direct (proxyless) connections, e.g. local dev.
-func clientIPKey(r *http.Request) (string, error) {
-	if ip := middleware.GetClientIP(r.Context()); ip != "" {
-		return ip, nil
-	}
-	return httprate.KeyByIP(r)
 }
 
 // securityHeaders adds standard security response headers to every response.
@@ -134,6 +126,44 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// requestLogger logs one line per request via slog, in place of
+// middleware.Logger, whose formatter prints the full RequestURI — that
+// would persist public-link tokens (capability URLs) in the logs. The path
+// is redacted instead; the query string is deliberately not logged.
+func requestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+		start := time.Now()
+
+		next.ServeHTTP(ww, r)
+
+		slog.Info("http request",
+			"method", r.Method,
+			"path", redactPublicToken(r.URL.Path),
+			"status", ww.Status(),
+			"bytes", ww.BytesWritten(),
+			"duration", time.Since(start).String(),
+			"request_id", middleware.GetReqID(r.Context()),
+			"client_ip", middleware.GetClientIP(r.Context()),
+		)
+	})
+}
+
+// redactPublicToken replaces the path segment right after "/public/" with a
+// placeholder, so capability-URL tokens never reach the logs.
+func redactPublicToken(path string) string {
+	const marker = "/public/"
+	i := strings.Index(path, marker)
+	if i == -1 {
+		return path
+	}
+	rest := path[i+len(marker):]
+	if j := strings.Index(rest, "/"); j != -1 {
+		return path[:i+len(marker)] + "{redacted}" + rest[j:]
+	}
+	return path[:i+len(marker)] + "{redacted}"
 }
 
 // requestSizeLimit wraps each request body with http.MaxBytesReader to enforce
@@ -157,7 +187,7 @@ func (s *Server) setupRoutes() {
 
 	s.router.Group(func(r chi.Router) {
 		// General rate limit: 60 req/min per IP.
-		r.Use(httprate.Limit(60, time.Minute, httprate.WithKeyFuncs(clientIPKey)))
+		r.Use(httprate.Limit(60, time.Minute, httprate.WithKeyFuncs(httputil.ClientIPKey)))
 		r.Use(s.metrics.middleware)
 
 		r.Route("/api/v1", func(r chi.Router) {

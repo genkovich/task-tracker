@@ -19,6 +19,12 @@ func mapTaskError(err error) error {
 			Message:    "task title is required",
 			StatusCode: http.StatusUnprocessableEntity,
 		}
+	case errors.Is(err, domain.ErrTitleTooLong):
+		return &apperr.Error{
+			Code:       "task.title_too_long",
+			Message:    "task title must be at most 200 characters",
+			StatusCode: http.StatusUnprocessableEntity,
+		}
 	case errors.Is(err, domain.ErrTaskNotFound):
 		return &apperr.Error{
 			Code:       "task.not_found",

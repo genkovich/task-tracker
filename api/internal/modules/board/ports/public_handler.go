@@ -48,6 +48,7 @@ func (h *PublicHandler) RegisterRoutes(r chi.Router) {
 // @Failure  404   {object} httputil.ErrorResponse
 // @Router   /public/{token}/board [get]
 func (h *PublicHandler) handleGetPublicBoard(w http.ResponseWriter, r *http.Request) {
+	setNoIndexHeader(w)
 	token := chi.URLParam(r, "token")
 
 	state, err := h.stateService.GetPublicBoardState(r.Context(), token)
@@ -57,6 +58,13 @@ func (h *PublicHandler) handleGetPublicBoard(w http.ResponseWriter, r *http.Requ
 	}
 
 	httputil.WriteJSON(w, toPublicBoardStateResponse(state), http.StatusOK)
+}
+
+// setNoIndexHeader marks a public (token-scoped) response as not indexable:
+// the token is a capability URL and must never end up in a search index
+// (spec §6.1 abuse case "витік public link у індекс пошуковика").
+func setNoIndexHeader(w http.ResponseWriter) {
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 }
 
 // mapPublicError maps domain errors surfaced on the public-viewer path.

@@ -62,10 +62,6 @@ func (r *fakeRepo) DeleteTask(context.Context, uuid.UUID) error {
 	return errors.New("fakeRepo: DeleteTask not implemented")
 }
 
-func (r *fakeRepo) ColumnExists(context.Context, uuid.UUID) (bool, error) {
-	return false, errors.New("fakeRepo: ColumnExists not implemented")
-}
-
 // IssuePublicLink mirrors the real repo's contract (data-model.md UNIQUE
 // (board_id)): domain.ErrLinkAlreadyActive when the board already has a link,
 // no write on that path.

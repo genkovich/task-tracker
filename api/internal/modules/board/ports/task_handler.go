@@ -50,7 +50,9 @@ func (h *TaskHandler) RegisterRoutes(r chi.Router) {
 		r.Use(httprate.Limit(
 			taskCreateRateLimit,
 			time.Minute,
-			httprate.WithKeyFuncs(httprate.KeyByIP),
+			// XFF-aware key: behind Caddy every client shares RemoteAddr,
+			// so keying by it would give the whole team one bucket.
+			httprate.WithKeyFuncs(httputil.ClientIPKey),
 			httprate.WithLimitHandler(handleTaskRateLimited),
 		))
 		r.Post("/tasks", h.handleCreateTask)

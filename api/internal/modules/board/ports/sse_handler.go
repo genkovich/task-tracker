@@ -73,6 +73,7 @@ func (h *SSEHandler) handleStreamBoardEvents(w http.ResponseWriter, r *http.Requ
 // @Failure  404   {object} httputil.ErrorResponse
 // @Router   /public/{token}/events [get]
 func (h *SSEHandler) handleStreamPublicBoardEvents(w http.ResponseWriter, r *http.Request) {
+	setNoIndexHeader(w)
 	token := chi.URLParam(r, "token")
 
 	// Delegate token validity to app.StateService (T6) — AC-11 requires an

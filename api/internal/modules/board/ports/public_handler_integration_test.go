@@ -205,3 +205,39 @@ func TestGetPublicBoard_RevokedToken_ReturnsLinkInvalid(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 	require.Equal(t, "board.link_invalid", body.Error.Code, "AC-11: revoked token must map to board.link_invalid")
 }
+
+// TestPublicRoutes_MutatingMethodsRefused covers AC-10 with an executable
+// check (review 2026-08-21, root K): under /api/v1/public/{token}/... no
+// mutating method may exist — even with a VALID token every POST/PATCH/
+// DELETE is refused by routing (405 on the read-only board path, 404 on
+// paths that simply are not registered), never executed.
+func TestPublicRoutes_MutatingMethodsRefused(t *testing.T) {
+	f := setupT10PublicHandlerServer(t)
+	ctx := context.Background()
+
+	link, err := f.linkSvc.IssuePublicLink(ctx, t10SeedBoardID)
+	require.NoError(t, err)
+
+	base := f.ts.URL + "/api/v1/public/" + link.Token
+	cases := []struct {
+		method string
+		url    string
+	}{
+		{http.MethodPost, base + "/board"},
+		{http.MethodPatch, base + "/board"},
+		{http.MethodDelete, base + "/board"},
+		{http.MethodPost, base + "/tasks"},
+		{http.MethodDelete, base + "/tasks/" + uuid.NewString()},
+	}
+
+	for _, tc := range cases {
+		req, err := http.NewRequestWithContext(ctx, tc.method, tc.url, nil)
+		require.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		resp.Body.Close()
+
+		require.Containsf(t, []int{http.StatusNotFound, http.StatusMethodNotAllowed}, resp.StatusCode,
+			"AC-10: %s %s must be refused by routing, got %d", tc.method, tc.url, resp.StatusCode)
+	}
+}

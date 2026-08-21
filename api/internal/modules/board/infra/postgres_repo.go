@@ -199,18 +199,6 @@ func (r *PostgresRepository) DeleteTask(ctx context.Context, taskID uuid.UUID) e
 	return nil
 }
 
-// ColumnExists reports whether columnID exists.
-func (r *PostgresRepository) ColumnExists(ctx context.Context, columnID uuid.UUID) (bool, error) {
-	var exists bool
-	err := r.db.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM columns WHERE id = $1)`, columnID,
-	).Scan(&exists)
-	if err != nil {
-		return false, fmt.Errorf("column exists: %w", err)
-	}
-	return exists, nil
-}
-
 // IssuePublicLink persists a new public link for a board (AC-07).
 func (r *PostgresRepository) IssuePublicLink(ctx context.Context, link *domain.PublicLink) error {
 	err := r.db.QueryRow(ctx,

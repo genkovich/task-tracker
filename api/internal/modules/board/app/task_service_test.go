@@ -119,12 +119,6 @@ func (r *fakeRepo) DeleteTask(_ context.Context, taskID uuid.UUID) error {
 	return nil
 }
 
-func (r *fakeRepo) ColumnExists(_ context.Context, columnID uuid.UUID) (bool, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.columns[columnID], nil
-}
-
 func (r *fakeRepo) IssuePublicLink(_ context.Context, _ *domain.PublicLink) error {
 	return errors.New("not used by task_service tests")
 }

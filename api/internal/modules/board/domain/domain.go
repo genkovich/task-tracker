@@ -8,13 +8,22 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
 
+// MaxTitleLength bounds a task title in characters — mirrors the contract's
+// maxLength: 200 (contracts/openapi.yaml Task.title) and the tasks.title
+// column width; without the domain check an oversized title surfaced as an
+// opaque DB error → 500 instead of 422.
+const MaxTitleLength = 200
+
 var (
 	// ErrTitleRequired — a task title must be non-empty (AC-02).
 	ErrTitleRequired = errors.New("board.task_title_required")
+	// ErrTitleTooLong — a task title must be at most MaxTitleLength characters.
+	ErrTitleTooLong = errors.New("board.task_title_too_long")
 	// ErrTaskNotFound — no task exists for the given id.
 	ErrTaskNotFound = errors.New("board.task_not_found")
 	// ErrColumnNotFound — no column exists for the given id.
@@ -55,10 +64,10 @@ type Task struct {
 }
 
 // NewTask constructs a Task in the given column, enforcing a non-empty
-// title (AC-02).
+// (AC-02), length-bounded title.
 func NewTask(columnID uuid.UUID, title string, assignee *string) (*Task, error) {
-	if !isValidTitle(title) {
-		return nil, ErrTitleRequired
+	if err := validateTitle(title); err != nil {
+		return nil, err
 	}
 
 	return &Task{
@@ -69,19 +78,25 @@ func NewTask(columnID uuid.UUID, title string, assignee *string) (*Task, error) 
 	}, nil
 }
 
-// SetTitle updates the task's title, enforcing the same non-empty
-// invariant as NewTask (AC-02 applies to edits too).
+// SetTitle updates the task's title, enforcing the same invariants as
+// NewTask (AC-02 applies to edits too).
 func (t *Task) SetTitle(title string) error {
-	if !isValidTitle(title) {
-		return ErrTitleRequired
+	if err := validateTitle(title); err != nil {
+		return err
 	}
 
 	t.Title = title
 	return nil
 }
 
-func isValidTitle(title string) bool {
-	return strings.TrimSpace(title) != ""
+func validateTitle(title string) error {
+	if strings.TrimSpace(title) == "" {
+		return ErrTitleRequired
+	}
+	if utf8.RuneCountInString(title) > MaxTitleLength {
+		return ErrTitleTooLong
+	}
+	return nil
 }
 
 // PublicLink grants read-only access to a board via an opaque token

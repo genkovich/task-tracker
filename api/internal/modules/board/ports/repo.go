@@ -64,9 +64,6 @@ type Repository interface {
 	// domain.ErrTaskNotFound if no such task exists.
 	DeleteTask(ctx context.Context, taskID uuid.UUID) error
 
-	// ColumnExists reports whether columnID exists.
-	ColumnExists(ctx context.Context, columnID uuid.UUID) (bool, error)
-
 	// IssuePublicLink persists a new public link for a board. Returns
 	// domain.ErrLinkAlreadyActive if the board already has one (AC-07).
 	IssuePublicLink(ctx context.Context, link *domain.PublicLink) error

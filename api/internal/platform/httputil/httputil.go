@@ -38,6 +38,9 @@ func WriteError(w http.ResponseWriter, err error) {
 		return
 	}
 
+	// An unmapped error reaches the wire as an opaque 500 — log the detail
+	// here or it is lost entirely; the response body stays generic.
+	slog.Error("unmapped error written as 500", "error", err)
 	WriteJSON(w, ErrorResponse{
 		Error: ErrorBody{
 			Code:    "internal_error",

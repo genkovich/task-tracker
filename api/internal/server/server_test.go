@@ -153,3 +153,20 @@ func TestMetricsRecordsAPIRequestsOnly(t *testing.T) {
 		t.Error("operational endpoints must not appear as route labels in HTTP metrics")
 	}
 }
+
+// Review 2026-08-21, root K: public-link tokens are capability URLs — the
+// request logger must never write them out verbatim.
+func TestRedactPublicToken(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"/api/v1/public/abc123/board", "/api/v1/public/{redacted}/board"},
+		{"/api/v1/public/abc123/events", "/api/v1/public/{redacted}/events"},
+		{"/api/v1/public/abc123", "/api/v1/public/{redacted}"},
+		{"/api/v1/board", "/api/v1/board"},
+		{"/api/v1/tasks/42", "/api/v1/tasks/42"},
+	}
+	for _, tc := range cases {
+		if got := redactPublicToken(tc.in); got != tc.want {
+			t.Errorf("redactPublicToken(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
