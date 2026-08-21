@@ -7,7 +7,13 @@
 	encode zstd gzip
 
 	handle /api/* {
-		reverse_proxy api:8080
+		# SSE (sad.md §7, ADR-0002): стрім не можна буферизувати. flush_interval -1
+		# (негайний flush) стоїть на всьому api-proxy, а не окремих SSE-шляхах:
+		# звичайним JSON-відповідям миттєвий flush нічого не коштує, а конфіг
+		# лишається одним блоком без дублювання reverse_proxy.
+		reverse_proxy api:8080 {
+			flush_interval -1
+		}
 	}
 	# Health-и наживо з домену — по /readyz гейтиться деплой.
 	handle /livez {
