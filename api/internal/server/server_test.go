@@ -154,6 +154,31 @@ func TestMetricsRecordsAPIRequestsOnly(t *testing.T) {
 	}
 }
 
+// Review 2026-08-21 re2, #5: requests refused by the rate limiter must
+// still be counted — with the limiter mounted before the metrics middleware
+// every 429 was invisible to /metrics, so an abuse wave looked like silence.
+func TestMetricsRecordRateLimitedRequests(t *testing.T) {
+	s := New(nil, "http://localhost", nil)
+
+	// The general limit is 60 req/min per IP; drive one IP past it.
+	for i := 0; i < 65; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+		req.RemoteAddr = "192.0.2.9:1234"
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, req)
+	}
+
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for /metrics, got %d", rr.Code)
+	}
+
+	if !strings.Contains(rr.Body.String(), `status="429"`) {
+		t.Error("expected a status=\"429\" series in http_requests_total after exceeding the rate limit")
+	}
+}
+
 // Review 2026-08-21, root K: public-link tokens are capability URLs — the
 // request logger must never write them out verbatim.
 func TestRedactPublicToken(t *testing.T) {

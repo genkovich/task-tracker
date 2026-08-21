@@ -186,9 +186,12 @@ func (s *Server) setupRoutes() {
 	s.router.Method(http.MethodGet, "/metrics", s.metrics.handler())
 
 	s.router.Group(func(r chi.Router) {
+		// Metrics wrap the rate limiter, not the other way around: a 429
+		// refused by the limiter must still be counted (status="429"), or an
+		// abuse wave looks like silence on the dashboards.
+		r.Use(s.metrics.middleware)
 		// General rate limit: 60 req/min per IP.
 		r.Use(httprate.Limit(60, time.Minute, httprate.WithKeyFuncs(httputil.ClientIPKey)))
-		r.Use(s.metrics.middleware)
 
 		r.Route("/api/v1", func(r chi.Router) {
 			// Regular request/response routes run under the per-request
