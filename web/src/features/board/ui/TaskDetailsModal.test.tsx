@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TaskDetailsModal } from "./TaskDetailsModal";
+import { ApiClientError } from "@/shared/api/client";
 import type { Task, TaskDetail } from "@/features/board/api/types";
 
 const mockGetTask = vi.fn();
@@ -228,6 +229,54 @@ describe("TaskDetailsModal — comments (SCR-03)", () => {
     expect(mockGetTask).toHaveBeenCalledTimes(2);
   });
 
+  // Review I1(a): re-reading the thread after a comment used to refill every
+  // form field from the server, so a description typed a moment earlier was
+  // silently rolled back. The re-read must touch the thread, not the form.
+  it("keeps edits typed into the form when a comment is added", async () => {
+    const user = userEvent.setup();
+    mockAddComment.mockResolvedValue({});
+
+    renderEditor();
+    await screen.findByDisplayValue("Написати звіт");
+
+    await user.clear(screen.getByLabelText("Опис"));
+    await user.type(screen.getByLabelText("Опис"), "Ще не збережений опис");
+    await user.selectOptions(screen.getByLabelText("Пріоритет"), "low");
+
+    await user.type(screen.getByLabelText("Новий коментар"), "Готово");
+    await user.click(screen.getByRole("button", { name: "Додати коментар" }));
+
+    await waitFor(() => {
+      expect(mockAddComment).toHaveBeenCalled();
+    });
+
+    expect(screen.getByLabelText("Опис")).toHaveValue("Ще не збережений опис");
+    expect(screen.getByLabelText("Пріоритет")).toHaveValue("low");
+  });
+
+  // Review I1(b): the modal swallowed the failure, so the form read it as
+  // success and cleared the box — up to 2000 typed characters gone on a 422.
+  it("keeps the typed comment when posting it fails", async () => {
+    const user = userEvent.setup();
+    mockAddComment.mockRejectedValue(new Error("nope"));
+
+    renderEditor();
+    await screen.findByDisplayValue("Написати звіт");
+
+    await user.type(
+      screen.getByLabelText("Новий коментар"),
+      "Довгий коментар, який шкода втратити",
+    );
+    await user.click(screen.getByRole("button", { name: "Додати коментар" }));
+
+    await waitFor(() => {
+      expect(mockShowApiError).toHaveBeenCalled();
+    });
+    expect(screen.getByLabelText("Новий коментар")).toHaveValue(
+      "Довгий коментар, який шкода втратити",
+    );
+  });
+
   // TSK-09: an empty comment is blocked in the form, before any request.
   it("blocks an empty comment without calling the API", async () => {
     const user = userEvent.setup();
@@ -286,6 +335,35 @@ describe("TaskDetailsModal — viewer (SCR-07)", () => {
     expect(screen.getByText("Цифри вже є в дашборді")).toBeInTheDocument();
     expect(screen.getByText("Високий")).toBeInTheDocument();
     expect(screen.getByText("1 вер")).toBeInTheDocument();
+  });
+
+  // Review I2: a dead or foreign token used to render "не вдалося
+  // завантажити" — a generic failure where the spec promises the honest
+  // "this link is gone" screen (TSK-13). The modal reports it up; the page
+  // owns SCR-06.
+  it("reports a dead or foreign token up instead of showing a generic failure", async () => {
+    mockGetPublicTask.mockRejectedValue(
+      new ApiClientError("board.link_invalid", "this link is no longer available", 404),
+    );
+    const onLinkInvalid = vi.fn();
+
+    renderEditor({ publicToken: "tok-123", onLinkInvalid });
+
+    await waitFor(() => {
+      expect(onLinkInvalid).toHaveBeenCalled();
+    });
+    expect(screen.queryByText(/не вдалося завантажити/i)).not.toBeInTheDocument();
+  });
+
+  // Anything that is not a dead link is still a plain load failure.
+  it("keeps the generic failure for an error that is not a dead link", async () => {
+    mockGetPublicTask.mockRejectedValue(new Error("network down"));
+    const onLinkInvalid = vi.fn();
+
+    renderEditor({ publicToken: "tok-123", onLinkInvalid });
+
+    expect(await screen.findByText(/не вдалося завантажити/i)).toBeInTheDocument();
+    expect(onLinkInvalid).not.toHaveBeenCalled();
   });
 
   it("contains no field, no comment form and no delete", async () => {

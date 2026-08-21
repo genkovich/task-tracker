@@ -122,6 +122,13 @@ export default function BoardPublicPage() {
           }}
           onSaved={() => {}}
           onDeleted={() => setSelectedTask(null)}
+          // A link revoked while the viewer was reading, or a task that is not
+          // on this board (TSK-13), lands on the same honest SCR-06 screen a
+          // dead link does — never a generic "could not load".
+          onLinkInvalid={() => {
+            setSelectedTask(null);
+            setUnavailable(true);
+          }}
         />
       )}
     </div>

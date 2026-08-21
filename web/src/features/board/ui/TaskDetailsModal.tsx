@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { ApiClientError } from "@/shared/api/client";
 import { boardApi } from "@/features/board/api/boardApi";
 import type { Task, TaskDetail, TaskPriority } from "@/features/board/api/types";
 import { formatDueDate, isOverdue } from "@/features/board/lib/dueDate";
@@ -31,6 +32,10 @@ export interface TaskDetailsModalProps {
    * what puts the dialog in read-only mode (SCR-07, TSK-12): an editor never
    * has a token, a viewer never has anything else. */
   publicToken?: string;
+  /** The token turned out to be dead, or the task is not on its board
+   * (TSK-13). Only the page can answer that honestly — SCR-06 replaces the
+   * whole screen, not just the dialog — so the modal reports and steps back. */
+  onLinkInvalid?: () => void;
 }
 
 const PRIORITIES: { value: TaskPriority; label: string }[] = [
@@ -62,6 +67,7 @@ export function TaskDetailsModal({
   onSaved,
   onDeleted,
   publicToken,
+  onLinkInvalid,
 }: TaskDetailsModalProps) {
   const readOnly = publicToken !== undefined;
 
@@ -76,26 +82,42 @@ export function TaskDetailsModal({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const loaded = publicToken
-        ? await boardApi.getPublicTask(publicToken, task.id)
-        : await boardApi.getTask(task.id);
-      setDetail(loaded);
-      setLoadFailed(false);
-      setTitle(loaded.task.title);
-      setAssignee(loaded.task.assignee ?? "");
-      setDescription(loaded.task.description);
-      setPriority(loaded.task.priority);
-      setDueDate(loaded.task.due_date ?? "");
-    } catch (err) {
-      setLoadFailed(true);
-      showApiError(err);
-    }
-  }, [publicToken, task.id]);
+  // `resetForm` is the whole point of the parameter: the first load seeds the
+  // fields from the server, but a re-read after a comment must NOT — the
+  // person may have typed a new description in the meantime, and refilling the
+  // fields would throw it away without a word.
+  const load = useCallback(
+    async ({ resetForm }: { resetForm: boolean }) => {
+      try {
+        const loaded = publicToken
+          ? await boardApi.getPublicTask(publicToken, task.id)
+          : await boardApi.getTask(task.id);
+        setDetail(loaded);
+        setLoadFailed(false);
+        if (resetForm) {
+          setTitle(loaded.task.title);
+          setAssignee(loaded.task.assignee ?? "");
+          setDescription(loaded.task.description);
+          setPriority(loaded.task.priority);
+          setDueDate(loaded.task.due_date ?? "");
+        }
+      } catch (err) {
+        // A viewer whose link died mid-session belongs on the honest
+        // "link is gone" screen (TSK-13), not on a generic load failure —
+        // the page owns that state, so hand the decision up.
+        if (publicToken !== undefined && err instanceof ApiClientError && err.statusCode === 404) {
+          onLinkInvalid?.();
+          return;
+        }
+        setLoadFailed(true);
+        showApiError(err);
+      }
+    },
+    [publicToken, task.id, onLinkInvalid],
+  );
 
   useEffect(() => {
-    void load();
+    void load({ resetForm: true });
   }, [load]);
 
   const handleSave = async () => {
@@ -137,23 +159,28 @@ export function TaskDetailsModal({
     }
   };
 
+  // Both re-throw after surfacing the error: TaskComments only knows whether
+  // it may clear the box the person typed into, and a swallowed rejection
+  // would read to it as success.
   const handleAddComment = async (author: string, body: string) => {
     try {
       await boardApi.addComment(task.id, { author, body });
-      await load();
+      await load({ resetForm: false });
       onSaved();
     } catch (err) {
       showApiError(err);
+      throw err;
     }
   };
 
   const handleDeleteComment = async (commentId: string) => {
     try {
       await boardApi.deleteComment(task.id, commentId);
-      await load();
+      await load({ resetForm: false });
       onSaved();
     } catch (err) {
       showApiError(err);
+      throw err;
     }
   };
 
@@ -275,9 +302,9 @@ export function TaskDetailsModal({
         )}
 
         {/* Save is gated on the detail having actually arrived: the fields
-          * start from the card, which carries no description, so saving
-          * before (or instead of) a successful load would quietly wipe the
-          * description the card only knows exists. */}
+         * start from the card, which carries no description, so saving
+         * before (or instead of) a successful load would quietly wipe the
+         * description the card only knows exists. */}
         {!readOnly && detail && (
           <DialogFooter className="mt-2 flex-row items-center sm:justify-between">
             <Button

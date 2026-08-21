@@ -253,6 +253,28 @@ describe("BoardPublicPage — public read-only board view (SCR-05)", () => {
     expect(screen.queryByRole("button", { name: "Додати коментар" })).not.toBeInTheDocument();
   });
 
+  // Review I2 / TSK-13: the link died (or the task was never on this board)
+  // while the viewer was reading. That belongs on the same honest SCR-06
+  // screen a dead link gets — not on a generic "could not load the details"
+  // inside a dialog the board still shows behind it.
+  it("sends the viewer to the link-unavailable screen when the details come back link_invalid", async () => {
+    mockGetPublicBoard.mockResolvedValue(board);
+    mockGetPublicTask.mockRejectedValue(
+      new ApiClientError("board.link_invalid", "this link is no longer available", 404),
+    );
+
+    renderPage("valid-token");
+    await screen.findByText("Write the report");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Write the report"));
+
+    expect(await screen.findByText(/недоступ|no longer/i)).toBeInTheDocument();
+    expect(screen.queryByText(/не вдалося завантажити/i)).not.toBeInTheDocument();
+    // SCR-06 replaces the screen — the board must not stay behind it.
+    expect(screen.queryByText("To do")).not.toBeInTheDocument();
+  });
+
   // AC-11: an invalid/revoked token renders the SCR-06 "link unavailable"
   // state instead of the board — the backend maps this to a 404
   // `board.link_invalid` per contracts/openapi.yaml `PublicLinkInvalid`.

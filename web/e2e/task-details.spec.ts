@@ -58,16 +58,23 @@ test("task details: description + priority + deadline + comment → card markers
   await cardByTitle(page, title).click();
   await expect(page.getByRole("heading", { name: "Деталі задачі" })).toBeVisible();
 
-  // TSK-08: a comment lands in the thread and bumps the card's counter.
-  await page.getByLabel("Новий коментар").fill("Стенд піднято, лишився TLS");
-  await page.getByRole("button", { name: "Додати коментар" }).click();
-  await expect(page.getByText("Стенд піднято, лишився TLS")).toBeVisible();
-
-  // TSK-01/TSK-03/TSK-05: fill in the details and save.
+  // TSK-01/TSK-03/TSK-05: fill in the details…
   const due = futureDueDate();
   await page.getByLabel("Опис").fill("Зібрати цифри за тиждень");
   await page.getByLabel("Пріоритет").selectOption("high");
   await page.getByLabel("Дедлайн").fill(due.value);
+
+  // …then comment BEFORE saving, which is the order that hurts: re-reading
+  // the thread must not refill the form from the server and throw away what
+  // was just typed (review I1a).
+  await page.getByLabel("Новий коментар").fill("Стенд піднято, лишився TLS");
+  await page.getByRole("button", { name: "Додати коментар" }).click();
+  await expect(page.getByText("Стенд піднято, лишився TLS")).toBeVisible();
+
+  await expect(page.getByLabel("Опис")).toHaveValue("Зібрати цифри за тиждень");
+  await expect(page.getByLabel("Пріоритет")).toHaveValue("high");
+  await expect(page.getByLabel("Дедлайн")).toHaveValue(due.value);
+
   await page.getByRole("button", { name: "Зберегти" }).click();
 
   // On the card: markers, never content.

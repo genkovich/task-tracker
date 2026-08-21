@@ -39,6 +39,8 @@ export function TaskComments({ comments, readOnly, onAdd, onDelete }: TaskCommen
     setDeletingId(commentId);
     try {
       await onDelete(commentId);
+    } catch {
+      // Reported by the caller; the row simply stays where it was.
     } finally {
       setDeletingId(null);
     }
@@ -120,7 +122,12 @@ function CommentForm({ onAdd }: { onAdd: TaskCommentsProps["onAdd"] }) {
     setSubmitting(true);
     try {
       await onAdd(trimmedAuthor, trimmedBody);
+      // Cleared only on success. A rejected post has already surfaced its
+      // toast; wiping up to 2000 typed characters on top of that would turn a
+      // retryable failure into lost work.
       setBody("");
+    } catch {
+      // The caller reported it; keeping the text is this component's job.
     } finally {
       setSubmitting(false);
     }
