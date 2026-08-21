@@ -13,6 +13,8 @@ import { publicLinkApi, type PublicLink } from "../api/publicLinkApi";
 import { noLink, activeLink, type PublicLinkState } from "../model/publicLinkState";
 
 export interface PublicLinkPanelProps {
+  /** The board this panel issues/revokes the link for (boards BRD-06). */
+  boardId: string;
   /** The board's current link from `BoardState.public_link` (AC-08) — seeds
    * the panel so an already-issued link survives a page reload. */
   publicLink?: PublicLink | null;
@@ -21,7 +23,7 @@ export interface PublicLinkPanelProps {
 /** SCR-04 public-link panel: попап від кнопки «Поділитись» у шапці борда
  * (Design/scr04-share-link-*). Стани: немає лінка → «Отримати лінк»;
  * активний → URL із копіюванням + «Відкликати лінк». */
-export function PublicLinkPanel({ publicLink = null }: PublicLinkPanelProps) {
+export function PublicLinkPanel({ boardId, publicLink = null }: PublicLinkPanelProps) {
   const [state, setState] = useState<PublicLinkState>(publicLink ? activeLink(publicLink) : noLink);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -38,7 +40,7 @@ export function PublicLinkPanel({ publicLink = null }: PublicLinkPanelProps) {
     setError(null);
     setPending(true);
     try {
-      const link = await publicLinkApi.issue();
+      const link = await publicLinkApi.issue(boardId);
       setState(activeLink(link));
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "failed to issue public link");
@@ -51,7 +53,7 @@ export function PublicLinkPanel({ publicLink = null }: PublicLinkPanelProps) {
     setError(null);
     setPending(true);
     try {
-      await publicLinkApi.revoke();
+      await publicLinkApi.revoke(boardId);
       setState(noLink);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "failed to revoke public link");

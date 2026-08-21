@@ -2,7 +2,11 @@
 // exposed over HTTP for the board module.
 package ports
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // Event is the board.state_changed.v1 event shape (contracts/events.md):
 // a signal-only payload — no data field — telling a live client to re-fetch
@@ -14,17 +18,19 @@ type Event struct {
 	OccurredAt time.Time `json:"occurred_at"`
 }
 
-// Broadcaster is what app (T5/T6) calls after a mutation to notify every
-// live SSE connection, and what T9's revoke handler calls to close exactly
-// one public-link token's connections (sad.md §6, events.md "Connection
-// lifecycle").
+// Broadcaster is what app calls after a mutation to notify the mutated
+// board's live SSE connections, and what the revoke path calls to close
+// exactly one public-link token's connections (sad.md §6, events.md
+// "Connection lifecycle"). Board-scoped (boards BRD-05): events from board A
+// never reach board B's connections.
 type Broadcaster interface {
-	// Broadcast delivers evt to every registered connection: the
-	// team-editor connections and every public-viewer connection,
-	// regardless of token.
-	Broadcast(evt Event)
+	// Broadcast delivers evt to every connection registered under boardID:
+	// its team-editor connections and its public-viewer connections. Other
+	// boards' connections never see it.
+	Broadcast(boardID uuid.UUID, evt Event)
 
-	// CloseToken closes every connection registered under token, leaving
-	// team-editor connections and connections under other tokens open.
-	CloseToken(token string)
+	// CloseToken closes every connection registered under boardID's token
+	// bucket, leaving the board's team-editor connections and every other
+	// board's connections open.
+	CloseToken(boardID uuid.UUID, token string)
 }

@@ -27,9 +27,87 @@ func NewPostgresRepository(db *database.DB) *PostgresRepository {
 
 var _ ports.Repository = (*PostgresRepository)(nil)
 
-// GetBoardState returns every column (ordered left-to-right) with its
-// tasks, plus the board's current public link, if any.
+// ListBoards returns every board (oldest first) with its total task count —
+// the dashboard rows (boards BRD-01).
+func (r *PostgresRepository) ListBoards(ctx context.Context) ([]ports.BoardSummary, error) {
+	rows, err := r.db.Query(ctx,
+		`SELECT b.id, b.name, b.created_at, COUNT(t.id)
+		 FROM boards b
+		 LEFT JOIN columns c ON c.board_id = b.id
+		 LEFT JOIN tasks t ON t.column_id = c.id
+		 GROUP BY b.id, b.name, b.created_at
+		 ORDER BY b.created_at ASC, b.id ASC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list boards: %w", err)
+	}
+	defer rows.Close()
+
+	boards := []ports.BoardSummary{}
+	for rows.Next() {
+		var b ports.BoardSummary
+		if err := rows.Scan(&b.ID, &b.Name, &b.CreatedAt, &b.TaskCount); err != nil {
+			return nil, fmt.Errorf("list boards: %w", err)
+		}
+		boards = append(boards, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list boards: %w", err)
+	}
+	return boards, nil
+}
+
+// CreateBoard persists a new board together with its fixed columns in one
+// transaction (boards BRD-02) — either the board and all its columns exist,
+// or nothing does.
+func (r *PostgresRepository) CreateBoard(ctx context.Context, board *domain.Board, columns []domain.Column) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("create board: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	err = tx.QueryRow(ctx,
+		`INSERT INTO boards (id, name) VALUES ($1, $2) RETURNING created_at`,
+		board.ID, board.Name,
+	).Scan(&board.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("create board: insert board: %w", err)
+	}
+
+	for i := range columns {
+		err = tx.QueryRow(ctx,
+			`INSERT INTO columns (id, board_id, name, position)
+			 VALUES ($1, $2, $3, $4)
+			 RETURNING created_at`,
+			columns[i].ID, columns[i].BoardID, columns[i].Name, columns[i].Position,
+		).Scan(&columns[i].CreatedAt)
+		if err != nil {
+			return fmt.Errorf("create board: insert column %q: %w", columns[i].Name, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("create board: commit: %w", err)
+	}
+	return nil
+}
+
+// GetBoardState returns the board's id/name plus every column (ordered
+// left-to-right) with its tasks, plus the board's current public link, if
+// any. domain.ErrBoardNotFound for an unknown boardID (boards BRD-04).
 func (r *PostgresRepository) GetBoardState(ctx context.Context, boardID uuid.UUID) (*ports.BoardState, error) {
+	var board domain.Board
+	err := r.db.QueryRow(ctx,
+		`SELECT id, name, created_at FROM boards WHERE id = $1`, boardID,
+	).Scan(&board.ID, &board.Name, &board.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrBoardNotFound
+		}
+		return nil, fmt.Errorf("get board state: board row: %w", err)
+	}
+
 	columns, err := r.columnsForBoard(ctx, boardID)
 	if err != nil {
 		return nil, fmt.Errorf("get board state: list columns: %w", err)
@@ -48,7 +126,13 @@ func (r *PostgresRepository) GetBoardState(ctx context.Context, boardID uuid.UUI
 		return nil, fmt.Errorf("get board state: public link: %w", err)
 	}
 
-	return &ports.BoardState{Columns: columns, PublicLink: link}, nil
+	return &ports.BoardState{
+		ID:         board.ID,
+		Name:       board.Name,
+		CreatedAt:  board.CreatedAt,
+		Columns:    columns,
+		PublicLink: link,
+	}, nil
 }
 
 func (r *PostgresRepository) columnsForBoard(ctx context.Context, boardID uuid.UUID) ([]ports.ColumnState, error) {
@@ -114,6 +198,8 @@ func (r *PostgresRepository) publicLinkForBoard(ctx context.Context, boardID uui
 }
 
 // LeftmostColumnID resolves the position=0 column for boardID (AC-01).
+// No rows means no such board (every board always carries its three fixed
+// columns — CONTEXT.md invariant), hence domain.ErrBoardNotFound.
 func (r *PostgresRepository) LeftmostColumnID(ctx context.Context, boardID uuid.UUID) (uuid.UUID, error) {
 	var id uuid.UUID
 	err := r.db.QueryRow(ctx,
@@ -121,7 +207,7 @@ func (r *PostgresRepository) LeftmostColumnID(ctx context.Context, boardID uuid.
 	).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return uuid.Nil, domain.ErrColumnNotFound
+			return uuid.Nil, domain.ErrBoardNotFound
 		}
 		return uuid.Nil, fmt.Errorf("leftmost column: %w", err)
 	}
@@ -145,61 +231,73 @@ func (r *PostgresRepository) InsertTask(ctx context.Context, task *domain.Task) 
 	return nil
 }
 
-// UpdateTask persists edits to an existing task's title/assignee and fills
+// UpdateTask persists edits to an existing task's title/assignee, fills
 // task with the row's remaining columns, so callers hand back a complete
-// Task (contracts/openapi.yaml Task requires column_id/created_at too).
-func (r *PostgresRepository) UpdateTask(ctx context.Context, task *domain.Task) error {
+// Task (contracts/openapi.yaml Task requires column_id/created_at too), and
+// returns the task's board id for the board-scoped broadcast (BRD-05).
+func (r *PostgresRepository) UpdateTask(ctx context.Context, task *domain.Task) (uuid.UUID, error) {
+	var boardID uuid.UUID
 	err := r.db.QueryRow(ctx,
 		`UPDATE tasks SET title = $1, assignee = $2, updated_at = now()
 		 WHERE id = $3
-		 RETURNING column_id, created_at, updated_at`,
+		 RETURNING column_id, created_at, updated_at,
+		           (SELECT board_id FROM columns WHERE columns.id = tasks.column_id)`,
 		task.Title, task.Assignee, task.ID,
-	).Scan(&task.ColumnID, &task.CreatedAt, &task.UpdatedAt)
+	).Scan(&task.ColumnID, &task.CreatedAt, &task.UpdatedAt, &boardID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.ErrTaskNotFound
+			return uuid.Nil, domain.ErrTaskNotFound
 		}
-		return fmt.Errorf("update task: %w", err)
+		return uuid.Nil, fmt.Errorf("update task: %w", err)
 	}
-	return nil
+	return boardID, nil
 }
 
 // MoveTask updates a task's column_id and updated_at — a single-row UPDATE,
 // no version/lock column (last-write-wins by design, data-model.md) — and
-// returns the complete moved row.
-func (r *PostgresRepository) MoveTask(ctx context.Context, taskID, columnID uuid.UUID) (*domain.Task, error) {
+// returns the complete moved row plus its (new) board id.
+func (r *PostgresRepository) MoveTask(ctx context.Context, taskID, columnID uuid.UUID) (*domain.Task, uuid.UUID, error) {
 	task := domain.Task{ID: taskID}
+	var boardID uuid.UUID
 	err := r.db.QueryRow(ctx,
 		`UPDATE tasks SET column_id = $1, updated_at = now()
 		 WHERE id = $2
-		 RETURNING column_id, title, assignee, created_at, updated_at`,
+		 RETURNING column_id, title, assignee, created_at, updated_at,
+		           (SELECT board_id FROM columns WHERE columns.id = tasks.column_id)`,
 		columnID, taskID,
-	).Scan(&task.ColumnID, &task.Title, &task.Assignee, &task.CreatedAt, &task.UpdatedAt)
+	).Scan(&task.ColumnID, &task.Title, &task.Assignee, &task.CreatedAt, &task.UpdatedAt, &boardID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrTaskNotFound
+			return nil, uuid.Nil, domain.ErrTaskNotFound
 		}
 		if database.IsPgForeignKeyViolation(err) {
-			return nil, domain.ErrColumnNotFound
+			return nil, uuid.Nil, domain.ErrColumnNotFound
 		}
-		return nil, fmt.Errorf("move task: %w", err)
+		return nil, uuid.Nil, fmt.Errorf("move task: %w", err)
 	}
-	return &task, nil
+	return &task, boardID, nil
 }
 
-// DeleteTask hard-deletes a task row (AC-06).
-func (r *PostgresRepository) DeleteTask(ctx context.Context, taskID uuid.UUID) error {
-	result, err := r.db.Exec(ctx, `DELETE FROM tasks WHERE id = $1`, taskID)
+// DeleteTask hard-deletes a task row (AC-06) and returns the board id the
+// task belonged to, for the board-scoped broadcast (BRD-05).
+func (r *PostgresRepository) DeleteTask(ctx context.Context, taskID uuid.UUID) (uuid.UUID, error) {
+	var boardID uuid.UUID
+	err := r.db.QueryRow(ctx,
+		`DELETE FROM tasks WHERE id = $1
+		 RETURNING (SELECT board_id FROM columns WHERE columns.id = tasks.column_id)`,
+		taskID,
+	).Scan(&boardID)
 	if err != nil {
-		return fmt.Errorf("delete task: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.Nil, domain.ErrTaskNotFound
+		}
+		return uuid.Nil, fmt.Errorf("delete task: %w", err)
 	}
-	if result.RowsAffected() == 0 {
-		return domain.ErrTaskNotFound
-	}
-	return nil
+	return boardID, nil
 }
 
-// IssuePublicLink persists a new public link for a board (AC-07).
+// IssuePublicLink persists a new public link for a board (AC-07). An FK
+// violation means link.BoardID does not exist → domain.ErrBoardNotFound.
 func (r *PostgresRepository) IssuePublicLink(ctx context.Context, link *domain.PublicLink) error {
 	err := r.db.QueryRow(ctx,
 		`INSERT INTO public_links (id, board_id, token)
@@ -210,6 +308,9 @@ func (r *PostgresRepository) IssuePublicLink(ctx context.Context, link *domain.P
 	if err != nil {
 		if database.IsPgUniqueViolation(err) {
 			return domain.ErrLinkAlreadyActive
+		}
+		if database.IsPgForeignKeyViolation(err) {
+			return domain.ErrBoardNotFound
 		}
 		return fmt.Errorf("issue public link: %w", err)
 	}

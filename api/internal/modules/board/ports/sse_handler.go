@@ -1,11 +1,13 @@
 package ports
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/genkovich/task-tracker/api/internal/platform/apperr"
 	"github.com/genkovich/task-tracker/api/internal/platform/httputil"
@@ -15,51 +17,76 @@ import (
 // mirrors infra.Hub's own convention (empty string = no public-link token).
 const teamEditorToken = ""
 
+// SSEBoardStateService validates a board id before its team-editor SSE
+// connection is registered (an unknown board must 404, not stream forever) —
+// satisfied by app.StateService.
+type SSEBoardStateService interface {
+	GetBoardState(ctx context.Context, boardID uuid.UUID) (*BoardState, error)
+}
+
 // SSERegistry is the connection-registry port streamBoardEvents/
 // streamPublicBoardEvents depend on — satisfied by infra.Hub's Subscribe.
 // Deliberately its own small interface (not infra.Hub's Register/Unregister
 // directly): Hub's connection id is an unexported type, so it cannot be
 // named in a port declared outside the infra package.
 type SSERegistry interface {
-	// Subscribe registers a new connection under token (empty string for
-	// the team-editor bucket) and returns the event channel — closed by the
-	// hub on CloseToken(token) (AC-11) — plus a func that unregisters this
-	// connection on normal client disconnect.
-	Subscribe(token string) (events <-chan Event, unregister func())
+	// Subscribe registers a new connection under boardID's token bucket
+	// (empty string for the team-editor bucket) and returns the event
+	// channel — closed by the hub on CloseToken (AC-11) — plus a func that
+	// unregisters this connection on normal client disconnect.
+	Subscribe(boardID uuid.UUID, token string) (events <-chan Event, unregister func())
 }
 
-// SSEHandler serves the live-update routes (contracts/openapi.yaml
-// streamBoardEvents, streamPublicBoardEvents): team-editor and public-viewer
-// SSE streams of board.state_changed events (contracts/events.md).
+// SSEHandler serves the live-update routes (boards contract
+// streamBoardEvents, base contract streamPublicBoardEvents): per-board
+// team-editor and public-viewer SSE streams of board.state_changed events
+// (contracts/events.md), scoped so board A's events never reach board B's
+// connections (boards BRD-05).
 type SSEHandler struct {
-	registry     SSERegistry
-	stateService PublicStateService
+	registry      SSERegistry
+	stateService  PublicStateService
+	boardStateSvc SSEBoardStateService
 }
 
 // NewSSEHandler wires an SSEHandler against the given connection registry
-// and the read-only, token-scoped state service used to validate a
-// public-viewer token before registering its connection.
-func NewSSEHandler(registry SSERegistry, stateService PublicStateService) *SSEHandler {
-	return &SSEHandler{registry: registry, stateService: stateService}
+// and the state services used to validate a public-viewer token / a board id
+// before registering a connection.
+func NewSSEHandler(registry SSERegistry, stateService PublicStateService, boardStateSvc SSEBoardStateService) *SSEHandler {
+	return &SSEHandler{registry: registry, stateService: stateService, boardStateSvc: boardStateSvc}
 }
 
-// RegisterRoutes mounts the SSE routes (contracts/openapi.yaml
-// streamBoardEvents, streamPublicBoardEvents), relative to the caller's
-// mount point. The caller must keep these off any per-request timeout
-// middleware — a timeout would cancel the stream's context mid-flight
-// (board.Handler exposes them via RegisterStreamingRoutes for exactly that).
+// RegisterRoutes mounts the SSE routes (boards contract streamBoardEvents,
+// base contract streamPublicBoardEvents), relative to the caller's mount
+// point. The caller must keep these off any per-request timeout middleware —
+// a timeout would cancel the stream's context mid-flight (board.Handler
+// exposes them via RegisterStreamingRoutes for exactly that).
 func (h *SSEHandler) RegisterRoutes(r chi.Router) {
-	r.Get("/board/events", h.handleStreamBoardEvents)
+	r.Get("/boards/{boardId}/events", h.handleStreamBoardEvents)
 	r.Get("/public/{token}/events", h.handleStreamPublicBoardEvents)
 }
 
 // @Summary  Stream board events (team-editor)
 // @Tags     board
 // @Produce  text/event-stream
+// @Param    boardId path string true "Board id"
 // @Success  200 {string} string
-// @Router   /board/events [get]
+// @Failure  404 {object} httputil.ErrorResponse
+// @Router   /boards/{boardId}/events [get]
 func (h *SSEHandler) handleStreamBoardEvents(w http.ResponseWriter, r *http.Request) {
-	events, unregister := h.registry.Subscribe(teamEditorToken)
+	boardID, ok := parseBoardID(w, r)
+	if !ok {
+		return
+	}
+
+	// An unknown board must 404 before any connection is registered —
+	// otherwise the stream would sit alive forever on a board that doesn't
+	// exist (boards contract streamBoardEvents).
+	if _, err := h.boardStateSvc.GetBoardState(r.Context(), boardID); err != nil {
+		httputil.WriteError(w, mapBoardError(err))
+		return
+	}
+
+	events, unregister := h.registry.Subscribe(boardID, teamEditorToken)
 	defer unregister()
 
 	stream(w, r, events)
@@ -78,13 +105,16 @@ func (h *SSEHandler) handleStreamPublicBoardEvents(w http.ResponseWriter, r *htt
 
 	// Delegate token validity to app.StateService (T6) — AC-11 requires an
 	// unknown/revoked token to be rejected with 404 board.link_invalid
-	// before any connection is registered with the hub.
-	if _, err := h.stateService.GetPublicBoardState(r.Context(), token); err != nil {
+	// before any connection is registered with the hub. The state also
+	// carries the link's board id — the hub bucket this viewer joins
+	// (boards BRD-05).
+	state, err := h.stateService.GetPublicBoardState(r.Context(), token)
+	if err != nil {
 		httputil.WriteError(w, mapPublicError(err))
 		return
 	}
 
-	events, unregister := h.registry.Subscribe(token)
+	events, unregister := h.registry.Subscribe(state.BoardID, token)
 	defer unregister()
 
 	// Re-check after registering: a revoke landing between the validation

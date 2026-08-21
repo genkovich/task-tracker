@@ -38,7 +38,7 @@ export default function AuthCallbackPage() {
         setTokens(data.access_token, data.refresh_token);
 
         await fetchUser();
-        navigate("/board", { replace: true });
+        navigate("/dashboard", { replace: true });
       } catch {
         localStorage.removeItem("access_token");
         localStorage.removeItem("refresh_token");

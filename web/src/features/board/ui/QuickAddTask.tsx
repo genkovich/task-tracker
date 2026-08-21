@@ -7,6 +7,8 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 
 export interface QuickAddTaskProps {
+  /** Дошка, в найлівішу колонку якої створюється задача (boards BRD-08). */
+  boardId: string;
   onCreated: (task: Task) => void;
   /** Закрити форму (Esc або «Скасувати») — станом open володіє Column (scr02). */
   onCancel?: () => void;
@@ -19,7 +21,7 @@ export interface QuickAddTaskProps {
  * AC-02: an empty title shows an inline required-name error and never calls
  * the API.
  */
-export function QuickAddTask({ onCreated, onCancel }: QuickAddTaskProps) {
+export function QuickAddTask({ boardId, onCreated, onCancel }: QuickAddTaskProps) {
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -34,7 +36,7 @@ export function QuickAddTask({ onCreated, onCancel }: QuickAddTaskProps) {
     setError(null);
     setSubmitting(true);
     try {
-      const created = await boardApi.createTask({ title: trimmedTitle });
+      const created = await boardApi.createTask({ board_id: boardId, title: trimmedTitle });
       onCreated(created);
       setTitle("");
     } catch (err) {

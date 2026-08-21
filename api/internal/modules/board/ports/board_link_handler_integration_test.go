@@ -7,7 +7,7 @@ package ports_test
 // not exist yet — ports.NewBoardHandler and ports.NewLinkHandler are
 // expected to land there, wrapping app.StateService.GetBoardState
 // (GET /api/v1/board) and app.LinkService.IssuePublicLink/RevokePublicLink
-// (POST/DELETE /api/v1/board/public-link, contracts/openapi.yaml
+// (POST/DELETE /api/v1/boards/{boardId}/public-link, boards contract
 // operationIds issuePublicLink/revokePublicLink).
 //
 // Covers:
@@ -45,8 +45,8 @@ import (
 	"github.com/genkovich/task-tracker/api/migrations"
 )
 
-// seeded board from migration 000007 (data-model.md, CONTEXT.md: exactly one
-// board row) — matches infra's postgres_repo_integration_test.go.
+// seeded board from migration 000007 (data-model.md) — the "first board"
+// after boards; matches infra's postgres_repo_integration_test.go.
 var t8SeedBoardID = uuid.MustParse("019a0000-0000-7000-8000-000000000101")
 
 // t8PublicLinkResp mirrors the PublicLink schema (contracts/openapi.yaml).
@@ -59,6 +59,8 @@ type t8PublicLinkResp struct {
 // decoded independently of any internal DTO type so this test pins the wire
 // contract, not an implementation detail.
 type t8BoardStateResp struct {
+	ID         string            `json:"id"`
+	Name       string            `json:"name"`
 	Columns    []json.RawMessage `json:"columns"`
 	PublicLink *t8PublicLinkResp `json:"public_link"`
 }
@@ -72,7 +74,7 @@ type t8ErrorResponse struct {
 }
 
 // t8BoardLinkFixture bundles the board handler (T8, GET /api/v1/board) and
-// the link handler under test (T8, POST/DELETE /api/v1/board/public-link)
+// the link handler under test (POST/DELETE /api/v1/boards/{boardId}/public-link)
 // behind one router, the way T11's wiring will eventually combine every
 // ports/*.go handler.
 type t8BoardLinkFixture struct {
@@ -94,11 +96,10 @@ func setupT8BoardLinkServer(t *testing.T) t8BoardLinkFixture {
 
 	stateSvc := app.NewStateService(repo)
 	linkSvc := app.NewLinkService(repo, hub)
+	boardSvc := app.NewBoardService(repo)
 
-	// ports.NewBoardHandler / ports.NewLinkHandler do not exist yet (T8) —
-	// these lines are why the package fails to compile before T8 lands.
-	boardHandler := ports.NewBoardHandler(stateSvc, t8SeedBoardID)
-	linkHandler := ports.NewLinkHandler(linkSvc, t8SeedBoardID)
+	boardHandler := ports.NewBoardHandler(boardSvc, stateSvc)
+	linkHandler := ports.NewLinkHandler(linkSvc)
 
 	r := chi.NewRouter()
 	r.Route("/api/v1", func(api chi.Router) {
@@ -114,7 +115,7 @@ func setupT8BoardLinkServer(t *testing.T) t8BoardLinkFixture {
 
 func (f t8BoardLinkFixture) getBoardState(t *testing.T) (*http.Response, t8BoardStateResp) {
 	t.Helper()
-	resp, err := http.Get(f.ts.URL + "/api/v1/board") //nolint:noctx // test helper
+	resp, err := http.Get(f.ts.URL + "/api/v1/boards/" + t8SeedBoardID.String()) //nolint:noctx // test helper
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -142,19 +143,19 @@ func TestBoardHandler_GetBoard_ReflectsPublicLinkPresence(t *testing.T) {
 	f := setupT8BoardLinkServer(t)
 
 	getResp, before := f.getBoardState(t)
-	require.Equalf(t, http.StatusOK, getResp.StatusCode, "GET /api/v1/board status")
+	require.Equalf(t, http.StatusOK, getResp.StatusCode, "GET /api/v1/boards/{boardId} status")
 	require.Nil(t, before.PublicLink, "board must have no active public link before AC-07")
 
-	issueResp := f.doMethod(t, http.MethodPost, "/api/v1/board/public-link")
+	issueResp := f.doMethod(t, http.MethodPost, "/api/v1/boards/"+t8SeedBoardID.String()+"/public-link")
 	defer issueResp.Body.Close()
-	require.Equalf(t, http.StatusCreated, issueResp.StatusCode, "POST /api/v1/board/public-link (AC-07 happy path) status")
+	require.Equalf(t, http.StatusCreated, issueResp.StatusCode, "POST public-link (AC-07 happy path) status")
 
 	var issued t8PublicLinkResp
 	require.NoError(t, json.NewDecoder(issueResp.Body).Decode(&issued))
 	require.NotEmpty(t, issued.Token, "PublicLink.token must be present per openapi.yaml PublicLink schema")
 
 	_, after := f.getBoardState(t)
-	require.NotNil(t, after.PublicLink, "GET /api/v1/board must reflect the newly issued public link")
+	require.NotNil(t, after.PublicLink, "GET /api/v1/boards/{boardId} must reflect the newly issued public link")
 	require.Equal(t, issued.Token, after.PublicLink.Token)
 }
 
@@ -163,11 +164,11 @@ func TestBoardHandler_GetBoard_ReflectsPublicLinkPresence(t *testing.T) {
 func TestLinkHandler_IssuePublicLink_Conflict(t *testing.T) {
 	f := setupT8BoardLinkServer(t)
 
-	first := f.doMethod(t, http.MethodPost, "/api/v1/board/public-link")
+	first := f.doMethod(t, http.MethodPost, "/api/v1/boards/"+t8SeedBoardID.String()+"/public-link")
 	require.Equal(t, http.StatusCreated, first.StatusCode)
 	first.Body.Close()
 
-	second := f.doMethod(t, http.MethodPost, "/api/v1/board/public-link")
+	second := f.doMethod(t, http.MethodPost, "/api/v1/boards/"+t8SeedBoardID.String()+"/public-link")
 	defer second.Body.Close()
 	require.Equal(t, http.StatusConflict, second.StatusCode, "issuing a second public link while one is active must return 409 (AC-07)")
 
@@ -181,11 +182,11 @@ func TestLinkHandler_IssuePublicLink_Conflict(t *testing.T) {
 func TestLinkHandler_RevokePublicLink_HappyPath(t *testing.T) {
 	f := setupT8BoardLinkServer(t)
 
-	issue := f.doMethod(t, http.MethodPost, "/api/v1/board/public-link")
+	issue := f.doMethod(t, http.MethodPost, "/api/v1/boards/"+t8SeedBoardID.String()+"/public-link")
 	require.Equal(t, http.StatusCreated, issue.StatusCode)
 	issue.Body.Close()
 
-	revoke := f.doMethod(t, http.MethodDelete, "/api/v1/board/public-link")
+	revoke := f.doMethod(t, http.MethodDelete, "/api/v1/boards/"+t8SeedBoardID.String()+"/public-link")
 	defer revoke.Body.Close()
 	require.Equal(t, http.StatusNoContent, revoke.StatusCode, "revoking an active public link must return 204 (AC-08)")
 
@@ -198,7 +199,7 @@ func TestLinkHandler_RevokePublicLink_HappyPath(t *testing.T) {
 func TestLinkHandler_RevokePublicLink_NotFound(t *testing.T) {
 	f := setupT8BoardLinkServer(t)
 
-	revoke := f.doMethod(t, http.MethodDelete, "/api/v1/board/public-link")
+	revoke := f.doMethod(t, http.MethodDelete, "/api/v1/boards/"+t8SeedBoardID.String()+"/public-link")
 	defer revoke.Body.Close()
 	require.Equal(t, http.StatusNotFound, revoke.StatusCode, "revoking with no active public link must return 404 (AC-08)")
 

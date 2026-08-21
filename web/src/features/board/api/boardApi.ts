@@ -1,8 +1,21 @@
 import { apiClient } from "@/shared/api/client";
-import type { BoardState, PublicBoardState, Task, TaskCreate, TaskUpdate } from "./types";
+import type {
+  BoardState,
+  BoardSummary,
+  PublicBoardState,
+  Task,
+  TaskCreate,
+  TaskUpdate,
+} from "./types";
 
 export const boardApi = {
-  getBoard: () => apiClient.get<BoardState>("/board"),
+  // Dashboard (boards BRD-01/BRD-02).
+  listBoards: () => apiClient.get<BoardSummary[]>("/boards"),
+
+  createBoard: (name: string) => apiClient.post<BoardState>("/boards", { name }),
+
+  getBoard: (boardId: string) =>
+    apiClient.get<BoardState>(`/boards/${encodeURIComponent(boardId)}`),
 
   // Public viewer (AC-09, AC-11) — token-scoped, read-only board fetch;
   // rejects with an ApiClientError (404 `board.link_invalid`) for an

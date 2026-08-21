@@ -1,7 +1,8 @@
-// Package domain models the board module's entities: the single Board
-// aggregate, its fixed Columns, the Tasks within them, and the optional
-// PublicLink used for read-only sharing. No framework imports (chi, pgx,
-// HTTP) — see .claude/rules/go-structs-interfaces.md.
+// Package domain models the board module's entities: Board aggregates (many,
+// created from the dashboard — boards BRD-02), their fixed Columns, the Tasks
+// within them, and the optional per-board PublicLink used for read-only
+// sharing. No framework imports (chi, pgx, HTTP) — see
+// .claude/rules/go-structs-interfaces.md.
 package domain
 
 import (
@@ -26,6 +27,11 @@ const MaxTitleLength = 200
 // instead of 422.
 const MaxAssigneeLength = 200
 
+// MaxBoardNameLength bounds a board name in characters — mirrors the boards
+// contract's maxLength: 200 (BoardCreate.name) and the boards.name column
+// width, symmetric with MaxTitleLength.
+const MaxBoardNameLength = 200
+
 var (
 	// ErrTitleRequired — a task title must be non-empty (AC-02).
 	ErrTitleRequired = errors.New("board.task_title_required")
@@ -34,6 +40,13 @@ var (
 	// ErrAssigneeTooLong — a task assignee must be at most MaxAssigneeLength
 	// characters.
 	ErrAssigneeTooLong = errors.New("board.task_assignee_too_long")
+	// ErrBoardNameRequired — a board name must be non-empty (BRD-03).
+	ErrBoardNameRequired = errors.New("board.name_required")
+	// ErrBoardNameTooLong — a board name must be at most MaxBoardNameLength
+	// characters (BRD-03).
+	ErrBoardNameTooLong = errors.New("board.name_too_long")
+	// ErrBoardNotFound — no board exists for the given id.
+	ErrBoardNotFound = errors.New("board.not_found")
 	// ErrTaskNotFound — no task exists for the given id.
 	ErrTaskNotFound = errors.New("board.task_not_found")
 	// ErrColumnNotFound — no column exists for the given id.
@@ -44,11 +57,51 @@ var (
 	ErrLinkAlreadyActive = errors.New("board.link_already_active")
 )
 
-// Board is the aggregate root — the product always has exactly one row
-// (CONTEXT.md invariant).
+// Board is the aggregate root. Boards are many (boards BRD-02); every board
+// always carries exactly the three fixed columns (CONTEXT.md invariant).
 type Board struct {
 	ID        uuid.UUID
+	Name      string
 	CreatedAt time.Time
+}
+
+// NewBoard constructs a Board with a non-empty, length-bounded name (BRD-03).
+func NewBoard(name string) (*Board, error) {
+	if err := validateBoardName(name); err != nil {
+		return nil, err
+	}
+
+	return &Board{
+		ID:   uuid.Must(uuid.NewV7()),
+		Name: name,
+	}, nil
+}
+
+func validateBoardName(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return ErrBoardNameRequired
+	}
+	if utf8.RuneCountInString(name) > MaxBoardNameLength {
+		return ErrBoardNameTooLong
+	}
+	return nil
+}
+
+// DefaultColumns returns the fixed column set every board carries (CONTEXT.md
+// invariant: exactly three fixed columns; ADR-0004 — no column CRUD), ordered
+// left to right.
+func DefaultColumns(boardID uuid.UUID) []Column {
+	names := []string{"To Do", "In Progress", "Done"}
+	columns := make([]Column, 0, len(names))
+	for i, name := range names {
+		columns = append(columns, Column{
+			ID:       uuid.Must(uuid.NewV7()),
+			BoardID:  boardID,
+			Name:     name,
+			Position: int16(i), //nolint:gosec // i is 0..2
+		})
+	}
+	return columns
 }
 
 // Column is one of the fixed display slots ("To Do" / "In Progress" /

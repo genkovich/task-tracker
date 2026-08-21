@@ -17,7 +17,7 @@ test.describe("Navigation", () => {
   test("404 page for unknown routes", async ({ page }) => {
     await page.goto("/nonexistent-route-xyz");
     await expect(page.getByRole("heading", { name: /page not found/i })).toBeVisible();
-    await expect(page.getByRole("link", { name: /board/i })).toBeVisible();
+    await expect(page.getByRole("link", { name: /dashboard/i })).toBeVisible();
   });
 
   test("home page has a title", async ({ page }) => {

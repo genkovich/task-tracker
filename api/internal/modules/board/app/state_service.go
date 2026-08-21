@@ -46,5 +46,5 @@ func (s *StateService) GetPublicBoardState(ctx context.Context, token string) (*
 		return nil, fmt.Errorf("get public board state: %w", err)
 	}
 
-	return &ports.PublicBoardState{Columns: state.Columns}, nil
+	return &ports.PublicBoardState{BoardID: link.BoardID, Columns: state.Columns}, nil
 }

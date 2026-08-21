@@ -42,6 +42,14 @@ func (r *fakeRepo) GetBoardState(_ context.Context, boardID uuid.UUID) (*ports.B
 	return st, nil
 }
 
+func (r *fakeRepo) ListBoards(context.Context) ([]ports.BoardSummary, error) {
+	return nil, errors.New("fakeRepo: ListBoards not implemented")
+}
+
+func (r *fakeRepo) CreateBoard(context.Context, *domain.Board, []domain.Column) error {
+	return errors.New("fakeRepo: CreateBoard not implemented")
+}
+
 func (r *fakeRepo) LeftmostColumnID(context.Context, uuid.UUID) (uuid.UUID, error) {
 	return uuid.Nil, errors.New("fakeRepo: LeftmostColumnID not implemented")
 }
@@ -50,16 +58,16 @@ func (r *fakeRepo) InsertTask(context.Context, *domain.Task) error {
 	return errors.New("fakeRepo: InsertTask not implemented")
 }
 
-func (r *fakeRepo) UpdateTask(context.Context, *domain.Task) error {
-	return errors.New("fakeRepo: UpdateTask not implemented")
+func (r *fakeRepo) UpdateTask(context.Context, *domain.Task) (uuid.UUID, error) {
+	return uuid.Nil, errors.New("fakeRepo: UpdateTask not implemented")
 }
 
-func (r *fakeRepo) MoveTask(context.Context, uuid.UUID, uuid.UUID) (*domain.Task, error) {
-	return nil, errors.New("fakeRepo: MoveTask not implemented")
+func (r *fakeRepo) MoveTask(context.Context, uuid.UUID, uuid.UUID) (*domain.Task, uuid.UUID, error) {
+	return nil, uuid.Nil, errors.New("fakeRepo: MoveTask not implemented")
 }
 
-func (r *fakeRepo) DeleteTask(context.Context, uuid.UUID) error {
-	return errors.New("fakeRepo: DeleteTask not implemented")
+func (r *fakeRepo) DeleteTask(context.Context, uuid.UUID) (uuid.UUID, error) {
+	return uuid.Nil, errors.New("fakeRepo: DeleteTask not implemented")
 }
 
 // IssuePublicLink mirrors the real repo's contract (data-model.md UNIQUE
@@ -110,17 +118,22 @@ func (r *fakeRepo) PublicLinkByBoard(_ context.Context, boardID uuid.UUID) (*dom
 var _ ports.Repository = (*fakeRepo)(nil)
 
 // fakeBroadcaster records CloseToken/Broadcast calls so tests can assert the
-// use-case notified live connections (AC-08, AC-11, sad.md §6 Flow 3).
+// use-case notified live connections (AC-08, AC-11, sad.md §6 Flow 3) and
+// that the notification hit the right board's bucket (boards BRD-05).
 type fakeBroadcaster struct {
-	closedTokens []string
-	broadcasts   []ports.Event
+	closedTokens     []string
+	closedBoards     []uuid.UUID
+	broadcasts       []ports.Event
+	broadcastsBoards []uuid.UUID
 }
 
-func (b *fakeBroadcaster) Broadcast(evt ports.Event) {
+func (b *fakeBroadcaster) Broadcast(boardID uuid.UUID, evt ports.Event) {
+	b.broadcastsBoards = append(b.broadcastsBoards, boardID)
 	b.broadcasts = append(b.broadcasts, evt)
 }
 
-func (b *fakeBroadcaster) CloseToken(token string) {
+func (b *fakeBroadcaster) CloseToken(boardID uuid.UUID, token string) {
+	b.closedBoards = append(b.closedBoards, boardID)
 	b.closedTokens = append(b.closedTokens, token)
 }
 

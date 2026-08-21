@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { AuthProvider } from "@/app/providers/auth";
 import { useBoardEvents } from "@/features/board/api/useBoardEvents";
 import BoardPage from "./BoardPage";
@@ -45,6 +45,9 @@ vi.mock("@/features/public-link/api/publicLinkApi", () => ({
 }));
 
 const board = {
+  id: "board-77",
+  name: "Дошка команди",
+  created_at: "2026-08-20T00:00:00Z",
   columns: [
     {
       id: "col-1",
@@ -78,10 +81,14 @@ beforeEach(() => {
 function renderPage() {
   // Шапка борда (BoardUserBadge) читає useAuth — сторінці потрібен провайдер,
   // як і в реальному дереві під AuthGate.
+  // Роут параметризований дошкою (boards BRD-04) — рендеримо через
+  // Routes, щоб useParams(:boardId) віддав реальний id.
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={["/board/board-77"]}>
       <AuthProvider>
-        <BoardPage />
+        <Routes>
+          <Route path="/board/:boardId" element={<BoardPage />} />
+        </Routes>
       </AuthProvider>
     </MemoryRouter>,
   );
@@ -150,7 +157,7 @@ describe("BoardPage — refetch failure keeps the stale board (re2 #2)", () => {
     });
 
     // Simulate an SSE board event triggering the page's refetch.
-    const onBoardEvent = vi.mocked(useBoardEvents).mock.calls[0][0] as () => void;
+    const onBoardEvent = vi.mocked(useBoardEvents).mock.calls[0][1];
     await act(async () => {
       onBoardEvent();
     });
@@ -204,7 +211,7 @@ describe("BoardPage — refetch must not remount the board subtree (re2 #3)", ()
     await user.click(screen.getByRole("button", { name: "Додати задачу" }));
     await user.type(screen.getByPlaceholderText("Назва задачі"), "draft in progress");
 
-    const onBoardEvent = vi.mocked(useBoardEvents).mock.calls[0][0] as () => void;
+    const onBoardEvent = vi.mocked(useBoardEvents).mock.calls[0][1];
     await act(async () => {
       onBoardEvent();
     });
@@ -229,6 +236,7 @@ describe("BoardPage — composes the team-editor board (SCR-01)", () => {
     await waitFor(() => {
       expect(mockGetBoard).toHaveBeenCalledTimes(1);
     });
+    expect(mockGetBoard).toHaveBeenCalledWith("board-77");
 
     await waitFor(() => {
       expect(screen.getByText("To do")).toBeInTheDocument();

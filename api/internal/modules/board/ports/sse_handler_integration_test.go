@@ -5,7 +5,7 @@ package ports_test
 // RED for T9 (docs/features/board/tasks/T9-ports-sse-endpoints.md):
 // api/internal/modules/board/ports/sse_handler.go does not exist yet —
 // ports.NewSSEHandler is expected to land there, wiring the T4 infra.Hub and
-// app.StateService behind GET /api/v1/board/events (team-editor) and
+// app.StateService behind GET /api/v1/boards/{boardId}/events (team-editor) and
 // GET /api/v1/public/{token}/events (public viewer, contracts/openapi.yaml
 // operationIds streamBoardEvents/streamPublicBoardEvents).
 //
@@ -100,9 +100,7 @@ func setupT9SSEServer(t *testing.T) t9SSEFixture {
 	stateSvc := app.NewStateService(repo)
 	linkSvc := app.NewLinkService(repo, hub)
 
-	// ports.NewSSEHandler does not exist yet (T9) — this line is why the
-	// package fails to compile before T9 lands.
-	handler := ports.NewSSEHandler(hub, stateSvc)
+	handler := ports.NewSSEHandler(hub, stateSvc, stateSvc)
 
 	r := chi.NewRouter()
 	r.Route("/api/v1", handler.RegisterRoutes)
@@ -207,7 +205,7 @@ func TestSSEHandler_StreamPublicBoardEvents_ValidToken_ReceivesBroadcastEvent(t 
 			got = evt
 			received = true
 		case <-tick.C:
-			f.hub.Broadcast(ports.Event{
+			f.hub.Broadcast(t9SeedBoardID, ports.Event{
 				EventID:    "01960000-0000-7000-8000-000000000099",
 				EventType:  "board.state_changed",
 				Version:    1,

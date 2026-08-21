@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams } from "react-router";
 
 import type { Route } from "./+types/BoardPage";
 import { boardApi } from "@/features/board/api/boardApi";
@@ -15,19 +16,21 @@ import { BoardUserBadge } from "@/widgets/board-shell/ui/BoardUserBadge";
 
 export const meta: Route.MetaFunction = () => [{ title: "Дошка — Task Tracker" }];
 
-/** SCR-01 team-editor board: composes T15's columns/cards/quick-add, wires
- * T16's edit modal to a card click, and mounts T17's public-link panel
- * (SCR-01 -> SCR-04). No fetch/mutation logic of its own — all data access
- * goes through boardApi / useBoardEvents / useBoardDnd. */
+/** SCR-01 team-editor board, параметризований дошкою (boards BRD-04): роут
+ * /board/:boardId. Компонує колонки/картки/quick-add, модалку редагування і
+ * public-link панель цієї дошки. No fetch/mutation logic of its own — all
+ * data access goes through boardApi / useBoardEvents / useBoardDnd. */
 export default function BoardPage() {
+  const { boardId } = useParams<{ boardId: string }>();
   const [board, setBoard] = useState<BoardState | null>(null);
   const [failed, setFailed] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const boardRef = useRef<BoardState | null>(null);
 
   const refetch = useCallback(() => {
+    if (!boardId) return;
     boardApi
-      .getBoard()
+      .getBoard(boardId)
       .then((state) => {
         boardRef.current = state;
         setBoard(state);
@@ -42,29 +45,35 @@ export default function BoardPage() {
         }
         showApiError(err);
       });
-  }, []);
+  }, [boardId]);
 
   useEffect(() => {
+    // Зміна :boardId — це інша дошка: скинути стан перед першим фетчем, щоб
+    // глядач не бачив колонок попередньої дошки.
+    boardRef.current = null;
+    setBoard(null);
+    setFailed(false);
     refetch();
   }, [refetch]);
 
-  useBoardEvents(refetch);
+  useBoardEvents(boardId ?? "", refetch);
 
   return (
     <BoardShell
       actions={
         <>
-          <PublicLinkPanel publicLink={board?.public_link ?? null} />
+          {boardId && <PublicLinkPanel boardId={boardId} publicLink={board?.public_link ?? null} />}
           <BoardUserBadge />
         </>
       }
     >
       {failed ? (
         <BoardLoadError onRetry={refetch} />
-      ) : !board ? (
+      ) : !board || !boardId ? (
         <BoardLoading />
       ) : (
         <BoardColumns
+          boardId={boardId}
           columns={board.columns}
           onTaskClick={(task) => setSelectedTask(task)}
           onTaskCreated={refetch}
@@ -93,6 +102,7 @@ export default function BoardPage() {
 }
 
 interface BoardColumnsProps {
+  boardId: string;
   columns: BoardState["columns"];
   onTaskClick: (task: Task) => void;
   onTaskCreated: (task: Task) => void;
@@ -102,7 +112,12 @@ interface BoardColumnsProps {
  * loaded columns; `useBoardDnd` adopts each fresh `initialColumns`
  * reference in place, so a refetch is a plain rerender — never a remount
  * that would wipe typed quick-add text or an active drag. */
-function BoardColumns({ columns: initialColumns, onTaskClick, onTaskCreated }: BoardColumnsProps) {
+function BoardColumns({
+  boardId,
+  columns: initialColumns,
+  onTaskClick,
+  onTaskCreated,
+}: BoardColumnsProps) {
   const { columns, drag, startDrag, moveDrag, endDrag, cancelDrag } = useBoardDnd(initialColumns, {
     moveTask: boardApi.moveTask,
   });
@@ -114,6 +129,7 @@ function BoardColumns({ columns: initialColumns, onTaskClick, onTaskCreated }: B
           <Column
             key={column.id}
             column={column}
+            boardId={boardId}
             isLeftmost={column.position === 0}
             onTaskClick={onTaskClick}
             dragTaskId={drag?.taskId ?? null}

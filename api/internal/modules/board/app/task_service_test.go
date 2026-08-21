@@ -56,7 +56,18 @@ func (r *fakeRepo) GetBoardState(_ context.Context, _ uuid.UUID) (*ports.BoardSt
 	return &ports.BoardState{}, nil
 }
 
-func (r *fakeRepo) LeftmostColumnID(_ context.Context, _ uuid.UUID) (uuid.UUID, error) {
+func (r *fakeRepo) ListBoards(_ context.Context) ([]ports.BoardSummary, error) {
+	return nil, errors.New("not used by task_service tests")
+}
+
+func (r *fakeRepo) CreateBoard(_ context.Context, _ *domain.Board, _ []domain.Column) error {
+	return errors.New("not used by task_service tests")
+}
+
+func (r *fakeRepo) LeftmostColumnID(_ context.Context, boardID uuid.UUID) (uuid.UUID, error) {
+	if boardID != r.boardID {
+		return uuid.Nil, domain.ErrBoardNotFound
+	}
 	return r.leftmost, nil
 }
 
@@ -78,45 +89,45 @@ func (r *fakeRepo) InsertTask(_ context.Context, task *domain.Task) error {
 // a full replacement, which would mask a service handing over a Task with
 // zero column_id/created_at — and, like the SQL RETURNING, the caller's
 // task is back-filled with the stored row's remaining fields.
-func (r *fakeRepo) UpdateTask(_ context.Context, task *domain.Task) error {
+func (r *fakeRepo) UpdateTask(_ context.Context, task *domain.Task) (uuid.UUID, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	stored, ok := r.tasks[task.ID]
 	if !ok {
-		return domain.ErrTaskNotFound
+		return uuid.Nil, domain.ErrTaskNotFound
 	}
 	stored.Title = task.Title
 	stored.Assignee = task.Assignee
 	stored.UpdatedAt = time.Now()
 	r.tasks[task.ID] = stored
 	*task = stored
-	return nil
+	return r.boardID, nil
 }
 
-func (r *fakeRepo) MoveTask(_ context.Context, taskID, columnID uuid.UUID) (*domain.Task, error) {
+func (r *fakeRepo) MoveTask(_ context.Context, taskID, columnID uuid.UUID) (*domain.Task, uuid.UUID, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	task, ok := r.tasks[taskID]
 	if !ok {
-		return nil, domain.ErrTaskNotFound
+		return nil, uuid.Nil, domain.ErrTaskNotFound
 	}
 	if !r.columns[columnID] {
-		return nil, domain.ErrColumnNotFound
+		return nil, uuid.Nil, domain.ErrColumnNotFound
 	}
 	task.ColumnID = columnID
 	task.UpdatedAt = time.Now()
 	r.tasks[taskID] = task
-	return &task, nil
+	return &task, r.boardID, nil
 }
 
-func (r *fakeRepo) DeleteTask(_ context.Context, taskID uuid.UUID) error {
+func (r *fakeRepo) DeleteTask(_ context.Context, taskID uuid.UUID) (uuid.UUID, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, ok := r.tasks[taskID]; !ok {
-		return domain.ErrTaskNotFound
+		return uuid.Nil, domain.ErrTaskNotFound
 	}
 	delete(r.tasks, taskID)
-	return nil
+	return r.boardID, nil
 }
 
 func (r *fakeRepo) IssuePublicLink(_ context.Context, _ *domain.PublicLink) error {
@@ -161,16 +172,18 @@ func (r *fakeRepo) taskCount() int {
 type fakeBroadcaster struct {
 	mu           sync.Mutex
 	broadcasts   int
+	boards       []uuid.UUID
 	closedTokens []string
 }
 
-func (b *fakeBroadcaster) Broadcast(_ ports.Event) {
+func (b *fakeBroadcaster) Broadcast(boardID uuid.UUID, _ ports.Event) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.broadcasts++
+	b.boards = append(b.boards, boardID)
 }
 
-func (b *fakeBroadcaster) CloseToken(token string) {
+func (b *fakeBroadcaster) CloseToken(_ uuid.UUID, token string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.closedTokens = append(b.closedTokens, token)
@@ -180,6 +193,17 @@ func (b *fakeBroadcaster) count() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.broadcasts
+}
+
+// lastBoard reports which board's bucket the most recent broadcast targeted
+// (boards BRD-05).
+func (b *fakeBroadcaster) lastBoard() uuid.UUID {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.boards) == 0 {
+		return uuid.Nil
+	}
+	return b.boards[len(b.boards)-1]
 }
 
 // ---------------------------------------------------------------------------
@@ -194,9 +218,9 @@ func TestCreateTask_NonEmptyTitle_LandsInLeftmostColumn(t *testing.T) {
 	leftmostID := uuid.Must(uuid.NewV7())
 	repo := newFakeRepo(boardID, leftmostID)
 	bcast := &fakeBroadcaster{}
-	svc := app.NewTaskService(repo, bcast, boardID)
+	svc := app.NewTaskService(repo, bcast)
 
-	task, err := svc.CreateTask(context.Background(), "Write the report", nil)
+	task, err := svc.CreateTask(context.Background(), boardID, "Write the report", nil)
 
 	require.NoError(t, err)
 	require.NotNil(t, task)
@@ -207,6 +231,7 @@ func TestCreateTask_NonEmptyTitle_LandsInLeftmostColumn(t *testing.T) {
 	require.Equal(t, leftmostID, stored.ColumnID)
 
 	require.Equal(t, 1, bcast.count(), "a successful mutation must broadcast exactly once")
+	require.Equal(t, boardID, bcast.lastBoard(), "the broadcast must target the mutated board (BRD-05)")
 }
 
 // TestCreateTask_EmptyTitle_RejectedNoWriteNoBroadcast covers AC-02: an empty
@@ -216,9 +241,9 @@ func TestCreateTask_EmptyTitle_RejectedNoWriteNoBroadcast(t *testing.T) {
 	leftmostID := uuid.Must(uuid.NewV7())
 	repo := newFakeRepo(boardID, leftmostID)
 	bcast := &fakeBroadcaster{}
-	svc := app.NewTaskService(repo, bcast, boardID)
+	svc := app.NewTaskService(repo, bcast)
 
-	task, err := svc.CreateTask(context.Background(), "", nil)
+	task, err := svc.CreateTask(context.Background(), boardID, "", nil)
 
 	require.ErrorIs(t, err, domain.ErrTitleRequired)
 	require.Nil(t, task)
@@ -236,7 +261,7 @@ func TestEditTask_UpdatesTitleAndAssignee(t *testing.T) {
 	existing := domain.Task{ID: uuid.Must(uuid.NewV7()), ColumnID: leftmostID, Title: "Original title", CreatedAt: createdAt}
 	repo.seedTask(existing)
 	bcast := &fakeBroadcaster{}
-	svc := app.NewTaskService(repo, bcast, boardID)
+	svc := app.NewTaskService(repo, bcast)
 
 	newAssignee := "Alex"
 	updated, err := svc.EditTask(context.Background(), existing.ID, "New title", &newAssignee)
@@ -271,7 +296,7 @@ func TestMoveTask_ValidColumn_UpdatesColumnID(t *testing.T) {
 	existing := domain.Task{ID: uuid.Must(uuid.NewV7()), ColumnID: leftmostID, Title: "Move me"}
 	repo.seedTask(existing)
 	bcast := &fakeBroadcaster{}
-	svc := app.NewTaskService(repo, bcast, boardID)
+	svc := app.NewTaskService(repo, bcast)
 
 	moved, err := svc.MoveTask(context.Background(), existing.ID, targetID)
 
@@ -288,6 +313,7 @@ func TestMoveTask_ValidColumn_UpdatesColumnID(t *testing.T) {
 	require.False(t, moved.UpdatedAt.IsZero(), "MoveTask must refresh and return updated_at")
 
 	require.Equal(t, 1, bcast.count(), "a successful move must broadcast exactly once")
+	require.Equal(t, boardID, bcast.lastBoard(), "the broadcast must target the moved task's board (BRD-05)")
 }
 
 // TestMoveTask_InvalidColumn_RejectedNoWriteNoBroadcast covers AC-05: moving
@@ -300,7 +326,7 @@ func TestMoveTask_InvalidColumn_RejectedNoWriteNoBroadcast(t *testing.T) {
 	existing := domain.Task{ID: uuid.Must(uuid.NewV7()), ColumnID: leftmostID, Title: "Stay put"}
 	repo.seedTask(existing)
 	bcast := &fakeBroadcaster{}
-	svc := app.NewTaskService(repo, bcast, boardID)
+	svc := app.NewTaskService(repo, bcast)
 
 	invalidColumnID := uuid.Must(uuid.NewV7())
 	moved, err := svc.MoveTask(context.Background(), existing.ID, invalidColumnID)
@@ -323,7 +349,7 @@ func TestDeleteTask_RemovesTask(t *testing.T) {
 	existing := domain.Task{ID: uuid.Must(uuid.NewV7()), ColumnID: leftmostID, Title: "Delete me"}
 	repo.seedTask(existing)
 	bcast := &fakeBroadcaster{}
-	svc := app.NewTaskService(repo, bcast, boardID)
+	svc := app.NewTaskService(repo, bcast)
 
 	err := svc.DeleteTask(context.Background(), existing.ID)
 
