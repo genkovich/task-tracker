@@ -177,7 +177,13 @@ func TestPostgresRepository_DeleteComment(t *testing.T) {
 	_, err = f.repo.InsertComment(ctx, comment)
 	require.NoError(t, err)
 
-	boardID, err := f.repo.DeleteComment(ctx, comment.ID)
+	// A comment is only reachable through its own task's path: the route
+	// names both ids, so the pair is the key.
+	other := insertDetailedTask(t, f, domain.TaskDetails{Title: "Unrelated"})
+	_, err = f.repo.DeleteComment(ctx, other.ID, comment.ID)
+	require.ErrorIs(t, err, domain.ErrCommentNotFound, "a comment must not be deletable through another task")
+
+	boardID, err := f.repo.DeleteComment(ctx, task.ID, comment.ID)
 	require.NoError(t, err)
 	require.Equal(t, seedBoardID, boardID)
 
@@ -185,7 +191,7 @@ func TestPostgresRepository_DeleteComment(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, comments)
 
-	_, err = f.repo.DeleteComment(ctx, comment.ID)
+	_, err = f.repo.DeleteComment(ctx, task.ID, comment.ID)
 	require.ErrorIs(t, err, domain.ErrCommentNotFound, "deleting an already-deleted comment is a 404")
 }
 

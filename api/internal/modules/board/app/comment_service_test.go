@@ -127,7 +127,7 @@ func TestDeleteComment_RemovesAndBroadcasts(t *testing.T) {
 	bcast := &fakeBroadcaster{}
 	svc := app.NewCommentService(repo, bcast)
 
-	require.NoError(t, svc.DeleteComment(context.Background(), comment.ID))
+	require.NoError(t, svc.DeleteComment(context.Background(), task.ID, comment.ID))
 
 	require.Equal(t, 0, repo.commentCount(), "the comment must be gone (TSK-10)")
 	require.Equal(t, 1, bcast.count(), "a successful delete must broadcast exactly once")
@@ -141,8 +141,42 @@ func TestDeleteComment_Unknown_ReturnsCommentNotFound(t *testing.T) {
 	bcast := &fakeBroadcaster{}
 	svc := app.NewCommentService(repo, bcast)
 
-	err := svc.DeleteComment(context.Background(), uuid.Must(uuid.NewV7()))
+	err := svc.DeleteComment(context.Background(), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()))
 
 	require.ErrorIs(t, err, domain.ErrCommentNotFound)
 	require.Equal(t, 0, bcast.count())
+}
+
+// The route names both ids, so a comment must not be reachable through
+// another task's path — the pair is the key, not the comment alone.
+func TestDeleteComment_WrongTask_ReturnsCommentNotFound(t *testing.T) {
+	boardID := uuid.Must(uuid.NewV7())
+	columnID := uuid.Must(uuid.NewV7())
+	repo := newFakeRepo(boardID, columnID)
+	task := domain.Task{ID: uuid.Must(uuid.NewV7()), ColumnID: columnID, Title: "Owns the comment"}
+	other := domain.Task{ID: uuid.Must(uuid.NewV7()), ColumnID: columnID, Title: "Unrelated"}
+	repo.seedTask(task)
+	repo.seedTask(other)
+	comment := domain.Comment{ID: uuid.Must(uuid.NewV7()), TaskID: task.ID, Author: "Ada", Body: "mine"}
+	repo.seedComment(comment)
+	bcast := &fakeBroadcaster{}
+	svc := app.NewCommentService(repo, bcast)
+
+	err := svc.DeleteComment(context.Background(), other.ID, comment.ID)
+
+	require.ErrorIs(t, err, domain.ErrCommentNotFound)
+	require.Equal(t, 1, repo.commentCount(), "the comment must survive a delete through the wrong task")
+	require.Equal(t, 0, bcast.count())
+}
+
+// TSK-08: listing comments of a task that does not exist is a not-found, not
+// an empty list — the two are different answers.
+func TestListComments_UnknownTask_ReturnsTaskNotFound(t *testing.T) {
+	repo := newFakeRepo(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()))
+	svc := app.NewCommentService(repo, &fakeBroadcaster{})
+
+	comments, err := svc.ListComments(context.Background(), uuid.Must(uuid.NewV7()))
+
+	require.Nil(t, comments)
+	require.ErrorIs(t, err, domain.ErrTaskNotFound)
 }

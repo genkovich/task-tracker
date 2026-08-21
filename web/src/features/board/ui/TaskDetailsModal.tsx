@@ -274,7 +274,11 @@ export function TaskDetailsModal({
           />
         )}
 
-        {!readOnly && (
+        {/* Save is gated on the detail having actually arrived: the fields
+          * start from the card, which carries no description, so saving
+          * before (or instead of) a successful load would quietly wipe the
+          * description the card only knows exists. */}
+        {!readOnly && detail && (
           <DialogFooter className="mt-2 flex-row items-center sm:justify-between">
             <Button
               type="button"

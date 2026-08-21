@@ -117,10 +117,13 @@ type Repository interface {
 	// domain.ErrTaskNotFound if comment.TaskID does not exist.
 	InsertComment(ctx context.Context, comment *domain.Comment) (uuid.UUID, error)
 
-	// DeleteComment hard-deletes a comment (tasks TSK-10) and returns the
-	// board id its task belongs to. Returns domain.ErrCommentNotFound if no
-	// such comment exists.
-	DeleteComment(ctx context.Context, commentID uuid.UUID) (uuid.UUID, error)
+	// DeleteComment hard-deletes a comment that belongs to taskID (tasks
+	// TSK-10) and returns the board id its task sits on. The task is part of
+	// the key, not context: the route names both ids, and a delete that
+	// ignored the task would let any comment be removed through any task's
+	// path. Returns domain.ErrCommentNotFound if no such comment exists under
+	// that task.
+	DeleteComment(ctx context.Context, taskID, commentID uuid.UUID) (uuid.UUID, error)
 
 	// UpdateTask persists edits to an existing task's details (title,
 	// assignee, description, priority, due date) and fills task with the

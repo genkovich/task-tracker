@@ -17,7 +17,7 @@ import (
 type CommentAppService interface {
 	ListComments(ctx context.Context, taskID uuid.UUID) ([]domain.Comment, error)
 	AddComment(ctx context.Context, taskID uuid.UUID, author, body string) (*domain.Comment, error)
-	DeleteComment(ctx context.Context, commentID uuid.UUID) error
+	DeleteComment(ctx context.Context, taskID, commentID uuid.UUID) error
 }
 
 // CommentHandler serves the team-editor comment routes (tasks contract
@@ -105,7 +105,8 @@ func (h *CommentHandler) handleAddComment(w http.ResponseWriter, r *http.Request
 // @Failure  404 {object} httputil.ErrorResponse
 // @Router   /tasks/{taskId}/comments/{commentId} [delete]
 func (h *CommentHandler) handleDeleteComment(w http.ResponseWriter, r *http.Request) {
-	if _, ok := parseTaskID(w, r); !ok {
+	taskID, ok := parseTaskID(w, r)
+	if !ok {
 		return
 	}
 
@@ -115,7 +116,7 @@ func (h *CommentHandler) handleDeleteComment(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := h.commentService.DeleteComment(r.Context(), commentID); err != nil {
+	if err := h.commentService.DeleteComment(r.Context(), taskID, commentID); err != nil {
 		httputil.WriteError(w, mapCommentError(err))
 		return
 	}

@@ -156,10 +156,13 @@ func (r *fakeRepo) InsertComment(_ context.Context, comment *domain.Comment) (uu
 	return r.boardID, nil
 }
 
-func (r *fakeRepo) DeleteComment(_ context.Context, commentID uuid.UUID) (uuid.UUID, error) {
+// DeleteComment keys on the pair, like the real repository: a comment is
+// only reachable through its own task's path.
+func (r *fakeRepo) DeleteComment(_ context.Context, taskID, commentID uuid.UUID) (uuid.UUID, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, ok := r.comments[commentID]; !ok {
+	stored, ok := r.comments[commentID]
+	if !ok || stored.TaskID != taskID {
 		return uuid.Nil, domain.ErrCommentNotFound
 	}
 	delete(r.comments, commentID)

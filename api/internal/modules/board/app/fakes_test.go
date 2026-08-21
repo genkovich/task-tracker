@@ -82,7 +82,7 @@ func (r *fakeRepo) InsertComment(context.Context, *domain.Comment) (uuid.UUID, e
 	return uuid.Nil, errors.New("fakeRepo: InsertComment not implemented")
 }
 
-func (r *fakeRepo) DeleteComment(context.Context, uuid.UUID) (uuid.UUID, error) {
+func (r *fakeRepo) DeleteComment(context.Context, uuid.UUID, uuid.UUID) (uuid.UUID, error) {
 	return uuid.Nil, errors.New("fakeRepo: DeleteComment not implemented")
 }
 

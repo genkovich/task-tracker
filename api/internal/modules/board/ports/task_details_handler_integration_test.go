@@ -412,3 +412,41 @@ func TestTaskDetails_DeleteComment(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, againResp.StatusCode)
 	require.Equal(t, "comment.not_found", body.Error.Code)
 }
+
+// The delete route names both ids; a comment must not come off through
+// another task's path, or the URL is lying about what it scopes.
+func TestTaskDetails_DeleteComment_ThroughAnotherTask_Refused(t *testing.T) {
+	f := setupTskServer(t)
+	owner := f.createTask(t, map[string]any{"title": "Owns the comment"})
+	other := f.createTask(t, map[string]any{"title": "Unrelated"})
+
+	addResp := f.do(t, http.MethodPost, "/api/v1/tasks/"+owner.ID+"/comments",
+		map[string]any{"author": "Ada", "body": "mine"})
+	var created tskCommentWire
+	require.NoError(t, json.NewDecoder(addResp.Body).Decode(&created))
+	addResp.Body.Close()
+
+	delResp := f.do(t, http.MethodDelete, "/api/v1/tasks/"+other.ID+"/comments/"+created.ID, nil)
+	delResp.Body.Close()
+	require.Equal(t, http.StatusNotFound, delResp.StatusCode)
+
+	listResp := f.do(t, http.MethodGet, "/api/v1/tasks/"+owner.ID+"/comments", nil)
+	defer listResp.Body.Close()
+	var comments []tskCommentWire
+	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&comments))
+	require.Len(t, comments, 1, "the comment must survive a delete through the wrong task")
+}
+
+// Listing comments of a task that does not exist is a 404, not an empty list:
+// "no comments" and "no such task" are different answers (tasks contract).
+func TestTaskDetails_ListComments_UnknownTask_Returns404(t *testing.T) {
+	f := setupTskServer(t)
+
+	resp := f.do(t, http.MethodGet, "/api/v1/tasks/"+uuid.NewString()+"/comments", nil)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+
+	var body tskErrorWire
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.Equal(t, "task.not_found", body.Error.Code)
+}

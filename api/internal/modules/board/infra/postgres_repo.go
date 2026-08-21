@@ -275,16 +275,19 @@ func (r *PostgresRepository) InsertComment(ctx context.Context, comment *domain.
 	return boardID, nil
 }
 
-// DeleteComment hard-deletes a comment (tasks TSK-10) and returns the board
-// its task sits on, for the board-scoped broadcast.
-func (r *PostgresRepository) DeleteComment(ctx context.Context, commentID uuid.UUID) (uuid.UUID, error) {
+// DeleteComment hard-deletes a comment belonging to taskID (tasks TSK-10) and
+// returns the board its task sits on, for the board-scoped broadcast. task_id
+// is part of the WHERE clause, not decoration: the route names both ids, and
+// keying on the comment alone would let any comment be deleted through any
+// task's path.
+func (r *PostgresRepository) DeleteComment(ctx context.Context, taskID, commentID uuid.UUID) (uuid.UUID, error) {
 	var boardID uuid.UUID
 	err := r.db.QueryRow(ctx,
-		`DELETE FROM task_comments WHERE id = $1
+		`DELETE FROM task_comments WHERE id = $1 AND task_id = $2
 		 RETURNING (SELECT c.board_id FROM columns c
 		            JOIN tasks t ON t.column_id = c.id
 		            WHERE t.id = task_comments.task_id)`,
-		commentID,
+		commentID, taskID,
 	).Scan(&boardID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

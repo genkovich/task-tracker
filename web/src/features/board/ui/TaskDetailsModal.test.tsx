@@ -165,6 +165,19 @@ describe("TaskDetailsModal — editor (SCR-03)", () => {
     expect(mockEditTask).not.toHaveBeenCalled();
   });
 
+  // The fields start from the card, which carries no description. If Save
+  // were reachable before the detail arrived, it would send an empty
+  // description and quietly wipe the real one.
+  it("offers no save until the detail has actually loaded", async () => {
+    mockGetTask.mockRejectedValue(new Error("boom"));
+
+    renderEditor();
+
+    expect(await screen.findByText(/не вдалося завантажити деталі/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Зберегти" })).not.toBeInTheDocument();
+    expect(mockEditTask).not.toHaveBeenCalled();
+  });
+
   // Delete behaves exactly as it did in the modal this one replaced.
   it("deleting the task reports it to the caller", async () => {
     const user = userEvent.setup();

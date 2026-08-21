@@ -201,7 +201,9 @@ paths:
       summary: Видалити коментар (TSK-10, редактор)
       description: >-
         Редакторський маршрут: під публічним токеном такого шляху не існує
-        взагалі (глядач read-only, TSK-12).
+        взагалі (глядач read-only, TSK-12). Коментар шукається парою
+        (`taskId`, `commentId`) — через шлях чужої задачі він не видаляється,
+        інакше `taskId` у маршруті нічого не означав би.
       operationId: deleteTaskComment
       security: []
       parameters:
@@ -218,7 +220,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "404":
-          description: Коментаря не знайдено (`comment.not_found`)
+          description: >-
+            Коментаря під цією задачею не знайдено (`comment.not_found`) —
+            зокрема коли коментар існує, але належить іншій задачі
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
